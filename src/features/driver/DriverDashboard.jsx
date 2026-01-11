@@ -1,18 +1,22 @@
 // src/features/driver/DriverDashboard.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, Star, Settings, Moon, Globe, ChevronRight, ArrowLeft, LogOut } from 'lucide-react';
+import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, Star, Settings, Moon, Globe, ChevronRight, ArrowLeft, LogOut, RefreshCw } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useAuthStore } from '../../store/authStore';
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
-  const { signOut } = useAuthStore();
+  const { signOut, user, profile } = useAuthStore();
+  
+  // Driver State
+  const [driverData, setDriverData] = useState(null);
   const [isOnline, setIsOnline] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
-  const [earnings, setEarnings] = useState(1250);
+  const [todayEarnings, setTodayEarnings] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -34,35 +38,219 @@ export default function DriverDashboard() {
   // Keep screen awake
   useWakeLock(); 
 
-  // Mock incoming request
+  // Fetch driver data on mount - run in parallel, don't block
   useEffect(() => {
-    let timeout;
-    if (isOnline && !activeRide && !incomingRequest) {
-      timeout = setTimeout(() => {
-        setIncomingRequest({
-          id: 'ride_123',
-          passengerName: 'Kevin M.',
-          rating: 4.8,
-          pickup: 'Juja City Mall',
-          dropoff: 'Jkuat Gate C',
-          fare: 150,
-          distance: '2.5 km',
-          paymentMethod: 'M-Pesa'
-        });
-      }, 3000);
+    if (user) {
+      // Fetch all data in parallel
+      Promise.all([
+        fetchDriverData(),
+        fetchTodayEarnings(),
+        fetchActiveRide()
+      ]).catch(err => console.error('Error loading data:', err));
+    } else {
+      setIsLoading(false);
     }
-    return () => clearTimeout(timeout);
-  }, [isOnline, activeRide, incomingRequest]);
+  }, [user]);
 
-  const handleGoOnline = () => setIsOnline(true);
-  const handleGoOffline = () => { setIsOnline(false); setIncomingRequest(null); };
-  const acceptRide = () => { setActiveRide(incomingRequest); setIncomingRequest(null); };
+  // Subscribe to ride requests when online
+  useEffect(() => {
+    let channel;
+    if (isOnline && user && !activeRide) {
+      channel = supabase
+        .channel('pending-rides')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'rides',
+          filter: 'status=eq.pending'
+        }, async (payload) => {
+          // Fetch passenger details
+          const { data: passenger } = await supabase
+            .from('profiles')
+            .select('full_name, phone')
+            .eq('id', payload.new.passenger_id)
+            .single();
+          
+          setIncomingRequest({
+            ...payload.new,
+            passengerName: passenger?.full_name || 'Passenger',
+            passengerPhone: passenger?.phone || '',
+            rating: 4.8, // Default rating for now
+            pickup: 'Pickup Location', // TODO: Reverse geocode
+            dropoff: 'Dropoff Location',
+            distance: '2.5 km',
+            paymentMethod: 'M-Pesa'
+          });
+        })
+        .subscribe();
+    }
+    
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [isOnline, user, activeRide]);
+
+  const fetchDriverData = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (data) {
+        setDriverData(data);
+        setIsOnline(data.is_online);
+      } else if (error?.code === 'PGRST116') {
+        // Driver record doesn't exist - create it
+        const { data: newDriver } = await supabase
+          .from('drivers')
+          .insert({ id: user.id, vehicle_type: 'boda', is_online: false })
+          .select()
+          .single();
+        if (newDriver) setDriverData(newDriver);
+      }
+    } catch (error) {
+      console.error('Error fetching driver data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchTodayEarnings = async () => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const { data } = await supabase
+        .from('rides')
+        .select('fare')
+        .eq('driver_id', user.id)
+        .eq('status', 'completed')
+        .gte('created_at', today.toISOString());
+      
+      const total = data?.reduce((sum, r) => sum + (r.fare || 0), 0) || 0;
+      setTodayEarnings(total);
+    } catch (error) {
+      console.error('Error fetching earnings:', error);
+    }
+  };
+
+  const fetchActiveRide = async () => {
+    try {
+      const { data } = await supabase
+        .from('rides')
+        .select('*, passenger:profiles!rides_passenger_id_fkey(full_name, phone)')
+        .eq('driver_id', user.id)
+        .in('status', ['accepted', 'ongoing'])
+        .single();
+      
+      if (data) {
+        setActiveRide({
+          ...data,
+          passengerName: data.passenger?.full_name || 'Passenger',
+          passengerPhone: data.passenger?.phone || '',
+          rating: 4.8,
+          pickup: 'Pickup Location',
+          dropoff: 'Dropoff Location'
+        });
+        setIsOnline(true);
+      }
+    } catch (error) {
+      // No active ride found - that's ok
+    }
+  };
+
+  const handleGoOnline = async () => {
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ is_online: true, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      
+      if (!error) {
+        setIsOnline(true);
+      }
+    } catch (error) {
+      console.error('Error going online:', error);
+    }
+  };
+
+  const handleGoOffline = async () => {
+    try {
+      const { error } = await supabase
+        .from('drivers')
+        .update({ is_online: false, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      
+      if (!error) {
+        setIsOnline(false);
+        setIncomingRequest(null);
+      }
+    } catch (error) {
+      console.error('Error going offline:', error);
+    }
+  };
+
+  const acceptRide = async () => {
+    if (!incomingRequest) return;
+    
+    try {
+      const { error } = await supabase
+        .from('rides')
+        .update({ driver_id: user.id, status: 'accepted' })
+        .eq('id', incomingRequest.id)
+        .eq('status', 'pending'); // Only if still pending
+      
+      if (!error) {
+        setActiveRide({
+          ...incomingRequest,
+          status: 'accepted'
+        });
+        setIncomingRequest(null);
+      }
+    } catch (error) {
+      console.error('Error accepting ride:', error);
+    }
+  };
+
+  const declineRide = () => {
+    setIncomingRequest(null);
+  };
+
+  const completeRide = async () => {
+    if (!activeRide) return;
+    
+    try {
+      const { error } = await supabase
+        .from('rides')
+        .update({ status: 'completed', payment_status: 'paid' })
+        .eq('id', activeRide.id);
+      
+      if (!error) {
+        setTodayEarnings(prev => prev + (activeRide.fare || 0));
+        setActiveRide(null);
+      }
+    } catch (error) {
+      console.error('Error completing ride:', error);
+    }
+  };
   
   const handleLogout = async () => {
+    // Go offline before logging out
+    if (isOnline) {
+      await supabase.from('drivers').update({ is_online: false }).eq('id', user.id);
+    }
     await signOut();
     navigate('/login');
   };
-  const completeRide = () => { setEarnings(prev => prev + activeRide.fare); setActiveRide(null); };
+
+  const refreshData = () => {
+    fetchDriverData();
+    fetchTodayEarnings();
+    fetchActiveRide();
+  };
 
   return (
     <div className="h-[100dvh] w-full bg-white font-sans text-slate-900 flex flex-col lg:flex-row overflow-hidden">
@@ -85,15 +273,25 @@ export default function DriverDashboard() {
               </div>
               <div className="flex flex-col">
                 <span className="text-xs text-slate-500">Today</span>
-                <span className="font-bold text-base text-slate-800">KES {earnings}</span>
+                <span className="font-bold text-base text-slate-800">
+                  {isLoading ? '...' : `KES ${todayEarnings.toLocaleString()}`}
+                </span>
               </div>
             </div>
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={refreshData}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
+              >
+                <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+              <button 
+                onClick={() => setShowSettings(true)}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -107,10 +305,15 @@ export default function DriverDashboard() {
           <div className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto my-3" />
           <div className="p-5 pb-8 space-y-6">
             <DashboardContent 
-              isOnline={isOnline} handleGoOnline={handleGoOnline}
-              handleGoOffline={handleGoOffline} incomingRequest={incomingRequest}
-              setIncomingRequest={setIncomingRequest} acceptRide={acceptRide}
-              activeRide={activeRide} completeRide={completeRide}
+              isOnline={isOnline} 
+              handleGoOnline={handleGoOnline}
+              handleGoOffline={handleGoOffline} 
+              incomingRequest={incomingRequest}
+              setIncomingRequest={declineRide} 
+              acceptRide={acceptRide}
+              activeRide={activeRide} 
+              completeRide={completeRide}
+              isLoading={isLoading}
             />
           </div>
         </div>
@@ -134,12 +337,21 @@ export default function DriverDashboard() {
           <div className="p-6 bg-white border-b border-slate-100 shadow-sm z-10">
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-2xl font-bold text-slate-800">Driver Dashboard</h1>
-              <button 
-                onClick={() => setShowSettings(true)}
-                className="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600"
-              >
-                <Settings className="w-6 h-6" />
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={refreshData}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600"
+                  title="Refresh"
+                >
+                  <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button 
+                  onClick={() => setShowSettings(true)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600"
+                >
+                  <Settings className="w-6 h-6" />
+                </button>
+              </div>
             </div>
             
             {/* Earnings Card Desktop */}
@@ -150,7 +362,9 @@ export default function DriverDashboard() {
                 </div>
                 <div>
                   <div className="text-emerald-100 text-sm font-medium">Total Earnings Today</div>
-                  <div className="text-3xl font-bold">KES {earnings}</div>
+                  <div className="text-3xl font-bold">
+                    {isLoading ? '...' : `KES ${todayEarnings.toLocaleString()}`}
+                  </div>
                 </div>
               </div>
             </div>
@@ -159,10 +373,15 @@ export default function DriverDashboard() {
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-8">
             <DashboardContent 
-              isOnline={isOnline} handleGoOnline={handleGoOnline}
-              handleGoOffline={handleGoOffline} incomingRequest={incomingRequest}
-              setIncomingRequest={setIncomingRequest} acceptRide={acceptRide}
-              activeRide={activeRide} completeRide={completeRide}
+              isOnline={isOnline} 
+              handleGoOnline={handleGoOnline}
+              handleGoOffline={handleGoOffline} 
+              incomingRequest={incomingRequest}
+              setIncomingRequest={declineRide} 
+              acceptRide={acceptRide}
+              activeRide={activeRide} 
+              completeRide={completeRide}
+              isLoading={isLoading}
             />
           </div>
         </div>
@@ -171,7 +390,7 @@ export default function DriverDashboard() {
       {/* --- SETTINGS OVERLAY (Shared) --- */}
       {showSettings && (
         <div className="fixed inset-0 z-[2000] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-             {/* ... Same Settings Content ... */}
+             {/* Settings Header */}
              <div className="sticky top-0 z-10 bg-white border-b border-slate-100 p-4 flex items-center gap-4" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
             <button onClick={() => setShowSettings(false)} className="p-2 -ml-2 hover:bg-slate-100 rounded-full transition active:scale-95">
               <ArrowLeft className="w-6 h-6 text-slate-700" />
@@ -180,6 +399,22 @@ export default function DriverDashboard() {
           </div>
           
           <div className="p-5 space-y-6 max-w-2xl mx-auto">
+            {/* Driver Info */}
+            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xl font-bold">
+                  {profile?.full_name?.charAt(0) || 'D'}
+                </div>
+                <div>
+                  <div className="font-bold text-slate-900">{profile?.full_name || 'Driver'}</div>
+                  <div className="text-sm text-slate-500">{profile?.phone || 'No phone'}</div>
+                  <div className="text-xs text-emerald-600 font-medium mt-1 capitalize">
+                    {driverData?.vehicle_type || 'Boda'} • {driverData?.plate_number || 'No plate'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* App Settings */}
             <div className="space-y-1">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">App Settings</h3>
@@ -273,8 +508,7 @@ export default function DriverDashboard() {
   );
 }
 
-// ... (imports remain the same)
-// SUB-COMPONENTS - REFACTORED FOR "UBER-LIKE" PROFESSIONALISM
+// === SUB-COMPONENTS ===
 
 function DriverMap({ activeRide }) {
   return (
@@ -282,10 +516,10 @@ function DriverMap({ activeRide }) {
       <iframe 
         width="100%" height="100%" frameBorder="0" 
         src="https://www.openstreetmap.org/export/embed.html?bbox=36.7%2C-1.3%2C37.1%2C-1.1&layer=mapnik" 
-        className="w-full h-full opacity-100 mix-blend-multiply grayscale-[0.3]" // subtle map style
+        className="w-full h-full opacity-100 mix-blend-multiply grayscale-[0.3]"
       ></iframe>
       
-      {/* Navigation Overlay - Clean Green Banner */}
+      {/* Navigation Overlay */}
       {activeRide && (
         <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-emerald-700 text-white p-4 shadow-xl z-20 rounded-none md:rounded-lg">
             <div className="flex items-start gap-4">
@@ -301,15 +535,16 @@ function DriverMap({ activeRide }) {
   );
 }
 
-function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRide, completeRide }) {
+function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRide, completeRide, isLoading }) {
   return (
     <>
       {/* 1. OFFLINE STATE - THE "GO" BUTTON */}
-      {!isOnline && (
+      {!isOnline && !activeRide && (
         <div className="flex flex-col items-center justify-center h-full min-h-[40vh]">
           <button 
             onClick={handleGoOnline}
-            className="group relative w-32 h-32 md:w-40 md:h-40 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all duration-300 shadow-2xl shadow-blue-300 flex items-center justify-center mb-6"
+            disabled={isLoading}
+            className="group relative w-32 h-32 md:w-40 md:h-40 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all duration-300 shadow-2xl shadow-blue-300 flex items-center justify-center mb-6 disabled:opacity-50"
           >
              <div className="absolute inset-0 rounded-full border-4 border-blue-400 opacity-30 group-hover:scale-110 transition-transform duration-500"></div>
              <span className="font-bold text-3xl md:text-4xl text-white tracking-widest">GO</span>
@@ -347,35 +582,33 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
              {/* Header */}
              <div className="flex items-center justify-between mb-8">
                 <div className="bg-black text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                  {incomingRequest.paymentMethod}
+                  {incomingRequest.paymentMethod || 'M-Pesa'}
                 </div>
-                <div className="text-slate-500 text-sm font-medium">3 mins away</div>
+                <div className="text-slate-500 text-sm font-medium">New Request</div>
              </div>
              
              {/* Fare */}
              <div className="text-center mb-10">
                 <div className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight">
                   <span className="text-2xl font-bold text-slate-400 align-top mr-1">KES</span>
-                  {incomingRequest.fare}
+                  {incomingRequest.fare || 0}
                 </div>
                 <div className="text-green-600 font-bold text-sm mt-1 uppercase tracking-wide">Expected Earnings</div>
              </div>
 
-             {/* Route Visualization - Uber Style (Line with squares) */}
+             {/* Route Visualization */}
              <div className="flex flex-col gap-6 px-4">
                <div className="flex gap-4 relative">
-                 {/* Connecting Line */}
                  <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-slate-200"></div>
-                 
-                 <div className="w-5 h-5 bg-black rounded-sm z-10 flex-shrink-0"></div> {/* Pickup Square */}
+                 <div className="w-5 h-5 bg-black rounded-sm z-10 flex-shrink-0"></div>
                  <div>
-                   <div className="text-lg font-bold text-slate-900 leading-none mb-1">{incomingRequest.pickup}</div>
-                   <div className="text-slate-400 text-xs uppercase font-bold">Pickup</div>
+                   <div className="text-lg font-bold text-slate-900 leading-none mb-1">{incomingRequest.passengerName}</div>
+                   <div className="text-slate-400 text-xs uppercase font-bold">Passenger</div>
                  </div>
                </div>
                
                <div className="flex gap-4 relative">
-                 <div className="w-5 h-5 border-[3px] border-black bg-white z-10 flex-shrink-0"></div> {/* Dropoff Square */}
+                 <div className="w-5 h-5 border-[3px] border-black bg-white z-10 flex-shrink-0"></div>
                  <div>
                    <div className="text-lg font-bold text-slate-900 leading-none mb-1">{incomingRequest.dropoff}</div>
                    <div className="text-slate-400 text-xs uppercase font-bold">Dropoff • {incomingRequest.distance}</div>
@@ -387,7 +620,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
           {/* Footer Actions */}
           <div className="mt-8 pt-6 border-t border-slate-100 grid grid-cols-6 gap-3">
              <button 
-               onClick={() => setIncomingRequest(null)}
+               onClick={setIncomingRequest}
                className="col-span-2 flex flex-col items-center justify-center p-4 rounded-xl bg-slate-100 hover:bg-slate-200 transition active:scale-95"
              >
                <X className="w-6 h-6 text-slate-600 mb-1" />
@@ -398,7 +631,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                className="col-span-4 flex flex-col items-center justify-center p-4 rounded-xl bg-black text-white hover:bg-slate-800 transition active:scale-95 shadow-xl"
              >
                <span className="text-xl font-bold">ACCEPT</span>
-               <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Automated Dispatch</span>
+               <span className="text-[10px] text-slate-400 uppercase tracking-widest mt-0.5">Tap to confirm</span>
              </button>
           </div>
         </div>
@@ -411,7 +644,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
           <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl mb-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center text-lg font-bold">
-                {activeRide.passengerName.charAt(0)}
+                {activeRide.passengerName?.charAt(0) || 'P'}
               </div>
               <div>
                 <div className="font-bold text-slate-900">{activeRide.passengerName}</div>
@@ -421,9 +654,11 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
               </div>
             </div>
             <div className="flex gap-2">
-              <button className="p-3 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-50">
-                <Phone className="w-5 h-5" />
-              </button>
+              {activeRide.passengerPhone && (
+                <a href={`tel:${activeRide.passengerPhone}`} className="p-3 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-50">
+                  <Phone className="w-5 h-5" />
+                </a>
+              )}
               <button className="p-3 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-50">
                 <Shield className="w-5 h-5" />
               </button>

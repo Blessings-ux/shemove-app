@@ -92,7 +92,25 @@ export const useAuthStore = create((set, get) => ({
         return { error };
       }
 
-      return { data };
+      // Fetch the user's profile to get their role
+      let profile = null;
+      if (data?.user) {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single();
+
+        if (profileError) {
+          console.error("Error fetching profile:", profileError);
+        } else {
+          profile = profileData;
+          console.log("Fetched profile on signIn:", profile);
+        }
+        set({ user: data.user, profile, loading: false });
+      }
+
+      return { data: { ...data, profile } };
     } catch (err) {
       if (err.name !== "AbortError") {
         set({ error: err.message, loading: false });
