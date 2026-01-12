@@ -52,18 +52,55 @@ export default function DriverDashboard() {
     }
   }, [user]);
 
+  // Fetch profile if not loaded
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (user && !profile) {
+        console.log('Fetching driver profile for:', user.id);
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) {
+          console.error('Driver profile fetch error:', error.message);
+          // Fallback to user metadata
+          if (user.user_metadata) {
+            const fallbackProfile = {
+              id: user.id,
+              full_name: user.user_metadata.full_name || user.email?.split('@')[0] || 'Driver',
+              phone: user.user_metadata.phone || '',
+              role: user.user_metadata.role || 'driver'
+            };
+            useAuthStore.setState({ profile: fallbackProfile });
+            console.log('Using fallback driver profile:', fallbackProfile);
+          }
+        } else if (data) {
+          useAuthStore.setState({ profile: data });
+          console.log('Driver profile loaded:', data);
+        }
+      }
+    };
+    fetchProfile();
+  }, [user, profile]);
+
   // Subscribe to ride requests when online
   useEffect(() => {
     let channel;
     if (isOnline && user && !activeRide) {
+      console.log('🚗 Driver is ONLINE - subscribing to pending rides...');
+      
       channel = supabase
-        .channel('pending-rides')
+        .channel(`driver-${user.id}-rides`)
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
           table: 'rides',
           filter: 'status=eq.pending'
         }, async (payload) => {
+          console.log('🔔 NEW RIDE REQUEST RECEIVED:', payload.new);
+          
           // Fetch passenger details
           const { data: passenger } = await supabase
             .from('profiles')
@@ -75,18 +112,28 @@ export default function DriverDashboard() {
             ...payload.new,
             passengerName: passenger?.full_name || 'Passenger',
             passengerPhone: passenger?.phone || '',
-            rating: 4.8, // Default rating for now
-            pickup: 'Pickup Location', // TODO: Reverse geocode
+            rating: 4.8,
+            pickup: 'Pickup Location',
             dropoff: 'Dropoff Location',
-            distance: '2.5 km',
+            distance: `${(payload.new.fare / 75).toFixed(1)} km`, // Calculate from fare
             paymentMethod: 'M-Pesa'
           });
         })
-        .subscribe();
+        .subscribe((status) => {
+          console.log('📡 Subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Successfully listening for ride requests!');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Subscription error - check Supabase Realtime settings');
+          }
+        });
     }
     
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      if (channel) {
+        console.log('🔌 Cleaning up ride subscription');
+        supabase.removeChannel(channel);
+      }
     };
   }, [isOnline, user, activeRide]);
 
@@ -163,17 +210,29 @@ export default function DriverDashboard() {
   };
 
   const handleGoOnline = async () => {
+    console.log('Going online...');
     try {
-      const { error } = await supabase
+      // First ensure driver record exists (upsert)
+      const { error: upsertError } = await supabase
         .from('drivers')
-        .update({ is_online: true, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
+        .upsert({
+          id: user.id,
+          vehicle_type: driverData?.vehicle_type || 'boda',
+          is_online: true,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
       
-      if (!error) {
-        setIsOnline(true);
+      if (upsertError) {
+        console.error('Error creating/updating driver:', upsertError);
+        alert(`Could not go online: ${upsertError.message}`);
+        return;
       }
+      
+      setIsOnline(true);
+      console.log('Now online and listening for rides!');
     } catch (error) {
       console.error('Error going online:', error);
+      alert('Failed to go online. Check console for details.');
     }
   };
 
@@ -238,12 +297,18 @@ export default function DriverDashboard() {
   };
   
   const handleLogout = async () => {
-    // Go offline before logging out
-    if (isOnline) {
-      await supabase.from('drivers').update({ is_online: false }).eq('id', user.id);
+    try {
+      // Go offline before logging out
+      if (isOnline) {
+        await supabase.from('drivers').update({ is_online: false }).eq('id', user.id);
+      }
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force navigate anyway
+      navigate('/login');
     }
-    await signOut();
-    navigate('/login');
   };
 
   const refreshData = () => {

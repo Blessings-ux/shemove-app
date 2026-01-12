@@ -141,9 +141,25 @@ export const useAuthStore = create((set, get) => ({
         return { error: authError };
       }
 
-      // 2. We depend on a Supabase Trigger to create the profile usually,
-      // but we can optimistic update or handle additional logic here if needed.
-      // For now, assume trigger handles public.profiles creation.
+      // 2. Profile is created by Supabase trigger
+      // 3. If role is 'driver', auto-create driver record (no approval needed)
+      if (role === "driver" && authData?.user?.id) {
+        const { error: driverError } = await supabase.from("drivers").upsert(
+          {
+            id: authData.user.id,
+            vehicle_type: "boda", // Default vehicle
+            is_online: false,
+          },
+          { onConflict: "id" }
+        );
+
+        if (driverError) {
+          console.error("Error auto-creating driver record:", driverError);
+          // Don't fail signup, driver can be created later
+        } else {
+          console.log("Driver record auto-created successfully");
+        }
+      }
 
       set({ loading: false });
       return { data: authData };

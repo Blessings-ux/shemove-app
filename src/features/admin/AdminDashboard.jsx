@@ -46,16 +46,17 @@ export default function AdminDashboard() {
     try {
       // Fetch all stats in parallel
       const [
-        { data: drivers },
+        { data: drivers, error: driversError },
         { data: passengers },
         { data: rides },
-        { data: pendingDriversData }
       ] = await Promise.all([
         supabase.from('drivers').select('*, profiles(full_name, phone)'),
         supabase.from('profiles').select('*').eq('role', 'passenger'),
         supabase.from('rides').select('*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name)').order('created_at', { ascending: false }).limit(50),
-        supabase.from('profiles').select('*').eq('role', 'driver').is('id', null) // Drivers without driver record = pending
       ]);
+
+      console.log('Fetched drivers:', drivers);
+      console.log('Drivers error:', driversError);
 
       // Calculate stats
       const activeDrivers = drivers?.filter(d => d.is_online) || [];
@@ -68,6 +69,8 @@ export default function AdminDashboard() {
         .from('profiles')
         .select('*')
         .eq('role', 'driver');
+      
+      console.log('Driver profiles:', driverProfiles);
       
       const driverIds = new Set(drivers?.map(d => d.id) || []);
       const pending = driverProfiles?.filter(p => !driverIds.has(p.id)) || [];
@@ -93,8 +96,13 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
-    await signOut();
-    navigate('/login');
+    try {
+      await supabase.auth.signOut();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      navigate('/login');
+    }
   };
 
   const handleNavClick = (view) => {
@@ -104,19 +112,44 @@ export default function AdminDashboard() {
 
   const approveDriver = async (profileId) => {
     try {
-      // Create driver record
-      const { error } = await supabase.from('drivers').insert({
+      // Find the profile being approved
+      const approvedProfile = pendingApprovals.find(p => p.id === profileId);
+      
+      // Use upsert to handle case where driver record might already exist
+      const { error } = await supabase.from('drivers').upsert({
         id: profileId,
-        vehicle_type: 'boda', // Default, should be from form
+        vehicle_type: 'boda', // Default vehicle type
         is_online: false
-      });
-      if (!error) {
-        setPendingApprovals(prev => prev.filter(p => p.id !== profileId));
-        setStats(prev => ({ ...prev, pendingDrivers: prev.pendingDrivers - 1 }));
-        fetchDashboardData();
+      }, { onConflict: 'id' });
+      
+      if (error) {
+        console.error('Error approving driver:', error);
+        alert(`Failed to approve driver: ${error.message}`);
+        return;
       }
+      
+      // Success - immediately update local state
+      const newDriver = {
+        id: profileId,
+        vehicle_type: 'boda',
+        is_online: false,
+        profiles: approvedProfile ? { full_name: approvedProfile.full_name, phone: approvedProfile.phone } : null
+      };
+      
+      setAllDrivers(prev => [...prev, newDriver]);
+      setPendingApprovals(prev => prev.filter(p => p.id !== profileId));
+      setStats(prev => ({ 
+        ...prev, 
+        pendingDrivers: prev.pendingDrivers - 1,
+        offlineDrivers: prev.offlineDrivers + 1 
+      }));
+      
+      // Also refresh from server to sync
+      fetchDashboardData();
+      alert('Driver approved successfully!');
     } catch (error) {
       console.error('Error approving driver:', error);
+      alert(`Failed to approve driver: ${error.message}`);
     }
   };
 
@@ -295,25 +328,26 @@ export default function AdminDashboard() {
                   isLoading={isLoading}
                 />
                 <StatCard 
-                  title="Active Drivers" 
-                  value={stats.activeDrivers} 
-                  subtitle={`${stats.offlineDrivers} Offline`}
-                  icon={Car} 
-                  color="bg-emerald-500"
+                  title="Passengers" 
+                  value={stats.totalPassengers} 
+                  subtitle="Registered users"
+                  icon={Users} 
+                  color="bg-blue-500"
                   isLoading={isLoading}
                 />
                 <StatCard 
                   title="Total Rides" 
                   value={stats.totalRides} 
                   icon={MapIcon} 
-                  color="bg-emerald-500"
+                  color="bg-purple-500"
                   isLoading={isLoading}
                 />
                 <StatCard 
-                  title="Passengers" 
-                  value={stats.totalPassengers} 
-                  icon={Users} 
-                  color="bg-emerald-500"
+                  title="Drivers" 
+                  value={stats.activeDrivers + stats.offlineDrivers} 
+                  subtitle={stats.activeDrivers > 0 ? `${stats.activeDrivers} Online` : `${stats.offlineDrivers} Offline`}
+                  icon={Car} 
+                  color={stats.activeDrivers > 0 ? "bg-emerald-500" : "bg-slate-400"}
                   isLoading={isLoading}
                 />
               </div>
