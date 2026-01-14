@@ -250,7 +250,7 @@ export default function PassengerHome() {
     };
   }, []); // Run once on mount
 
-  // Book a carpool offer
+  // Book a carpool offer - INSTANT connection, no confirmation needed
   const bookCarpoolOffer = async (offer) => {
     if (!user || seatsBooked > offer.available_seats) {
       alert('Not enough seats available');
@@ -258,17 +258,31 @@ export default function PassengerHome() {
     }
 
     setIsRequestingRide(true);
-    setBookingStep('searching');
+    // Go directly to matched - no searching needed for carpool
+    setBookingStep('matched');
 
     try {
-      // Create ride linked to the offer
+      // Fetch driver info
+      const { data: driverData } = await supabase
+        .from('profiles')
+        .select('full_name, phone')
+        .eq('id', offer.driver_id)
+        .single();
+
+      const { data: driverVehicle } = await supabase
+        .from('drivers')
+        .select('vehicle_type, plate_number')
+        .eq('id', offer.driver_id)
+        .single();
+
+      // Create ride linked to the offer - status is already 'accepted'
       const { data: ride, error: rideError } = await supabase.from('rides').insert({
         passenger_id: user.id,
         driver_id: offer.driver_id,
         pickup_location: `POINT(36.8 -1.3)`, // Would use offer location
         dropoff_location: `POINT(36.9 -1.2)`,
         fare: offer.fare_per_seat * seatsBooked,
-        status: 'accepted',
+        status: 'accepted', // Already accepted - driver pre-approved this
         ride_type: 'shared',
         seats_booked: seatsBooked,
         carpool_offer_id: offer.id
@@ -288,13 +302,23 @@ export default function PassengerHome() {
 
       if (offerError) throw offerError;
 
-      setCurrentRide(ride);
-      setBookingStep('matched');
-      console.log('Carpool booked!', ride);
+      // Set current ride with full driver info for display
+      setCurrentRide({
+        ...ride,
+        driverName: driverData?.full_name || 'Driver',
+        driverPhone: driverData?.phone || '',
+        vehicleType: driverVehicle?.vehicle_type || offer.vehicle_type || 'taxi',
+        plateNumber: driverVehicle?.plate_number || '',
+        pickupName: offer.pickup_name,
+        dropoffName: offer.dropoff_name,
+        departureTime: offer.departure_time
+      });
+
+      console.log('Carpool booked instantly! Connected to driver:', driverData?.full_name);
     } catch (error) {
       console.error('Error booking carpool:', error);
       alert('Failed to book carpool. Please try again.');
-      setBookingStep('selecting');
+      setBookingStep('idle');
     } finally {
       setIsRequestingRide(false);
     }
