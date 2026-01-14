@@ -8,6 +8,8 @@ import Map from '../../components/ui/Map';
 import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
 import { searchLocation, reverseGeocode } from '../../services/geocoding';
 
+import { getRoute } from '../../services/routing';
+
 export default function PassengerHome() {
   const navigate = useNavigate();
   const { profile, user } = useAuthStore();
@@ -28,6 +30,7 @@ export default function PassengerHome() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [appSettings, setAppSettings] = useState({
     notifications: true,
     darkMode: false,
@@ -57,6 +60,19 @@ export default function PassengerHome() {
       );
     }
   }, []);
+
+  // Fetch route when pickup and dropoff are available
+  useEffect(() => {
+    const fetchRoute = async () => {
+      if (pickupLocation && dropoffLocation) {
+        const coords = await getRoute(pickupLocation, dropoffLocation);
+        if (coords) setRouteCoordinates(coords);
+      } else {
+        setRouteCoordinates([]);
+      }
+    };
+    fetchRoute();
+  }, [pickupLocation, dropoffLocation]);
 
   // Fetch profile on mount if not loaded
   useEffect(() => {
@@ -157,7 +173,7 @@ export default function PassengerHome() {
       pickupLocation.lat, pickupLocation.lng,
       dropoff.lat, dropoff.lng
     );
-    const calculatedFare = getFare(distanceKm, selectedVehicle);
+    const calculatedFare = estimatedFare || getFare(distanceKm, selectedVehicle);
     
     setIsRequestingRide(true);
     setBookingStep('searching');
@@ -169,7 +185,8 @@ export default function PassengerHome() {
         pickup_location: `POINT(${pickupLocation.lng} ${pickupLocation.lat})`,
         dropoff_location: `POINT(${dropoff.lng} ${dropoff.lat})`,
         fare: calculatedFare,
-        status: 'pending'
+        status: 'pending',
+        ride_type: isCarpool ? 'shared' : 'solo' // Added ride_type
       }).select().single();
       
       if (error) throw error;
@@ -279,6 +296,14 @@ export default function PassengerHome() {
   };
 
   const openPanel = (panel) => { setMenuOpen(false); setActivePanel(panel); if (panel === 'profile') setProfileForm({ full_name: profile?.full_name || '', phone: profile?.phone || '' }); };
+  
+  // Combine markers for map
+  const getMapMarkers = () => {
+    const markers = [];
+    if (pickupLocation) markers.push({ position: [pickupLocation.lat, pickupLocation.lng], popup: "Pickup" });
+    if (dropoffLocation) markers.push({ position: [dropoffLocation.lat, dropoffLocation.lng], popup: "Dropoff" });
+    return markers;
+  };
 
   return (
     <div className="h-[100dvh] w-full bg-white font-sans text-slate-900 flex flex-col lg:flex-row overflow-hidden">
@@ -320,9 +345,10 @@ export default function PassengerHome() {
         <div className="relative h-[40vh] flex-shrink-0 mt-20">
           <Map 
             center={pickupLocation ? [pickupLocation.lat, pickupLocation.lng] : defaultCenter}
-            zoom={15}
+            zoom={13}
             className="h-full w-full"
-            markers={pickupLocation ? [{ position: [pickupLocation.lat, pickupLocation.lng], popup: "You are here" }] : []}
+            markers={getMapMarkers()}
+            routeCoordinates={routeCoordinates}
           />
         </div>
         
@@ -342,6 +368,7 @@ export default function PassengerHome() {
               estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
               estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
               isCarpool={isCarpool} setIsCarpool={setIsCarpool}
+              setPickupLocation={setPickupLocation}
             />
           </div>
           {/* Safe area for iOS */}
@@ -356,9 +383,10 @@ export default function PassengerHome() {
         <div className="flex-1 relative">
           <Map 
             center={pickupLocation ? [pickupLocation.lat, pickupLocation.lng] : defaultCenter}
-            zoom={15}
+            zoom={13}
             className="h-full w-full"
-            markers={pickupLocation ? [{ position: [pickupLocation.lat, pickupLocation.lng], popup: "You are here" }] : []}
+            markers={getMapMarkers()}
+            routeCoordinates={routeCoordinates}
           />
         </div>
         

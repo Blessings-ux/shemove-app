@@ -646,8 +646,16 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
           <div className="flex-1">
              {/* Header */}
              <div className="flex items-center justify-between mb-8">
-                <div className="bg-black text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                  {incomingRequest.paymentMethod || 'M-Pesa'}
+                <div className="flex gap-2">
+                    <div className="bg-black text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                      {incomingRequest.paymentMethod || 'M-Pesa'}
+                    </div>
+                    {/* SHARED RIDE BADGE */}
+                    {incomingRequest.ride_type === 'shared' && (
+                        <div className="bg-purple-600 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider animate-pulse border border-purple-400">
+                           Shared Ride
+                        </div>
+                    )}
                 </div>
                 <div className="text-slate-500 text-sm font-medium">New Request</div>
              </div>
