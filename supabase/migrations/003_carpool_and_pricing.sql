@@ -50,3 +50,20 @@ CREATE INDEX IF NOT EXISTS idx_carpool_offers_status ON public.carpool_offers(st
 ALTER TABLE public.rides 
   ADD CONSTRAINT fk_rides_carpool_offer 
   FOREIGN KEY (carpool_offer_id) REFERENCES public.carpool_offers(id) ON DELETE SET NULL;
+
+-- 4. Function to increment loyalty points
+CREATE OR REPLACE FUNCTION increment_loyalty_points(user_id uuid, points integer)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE public.profiles
+  SET loyalty_points = COALESCE(loyalty_points, 0) + points
+  WHERE id = user_id;
+END;
+$$;
+
+-- 5. Allow authenticated users to book (update) carpool offers (decrement seats)
+CREATE POLICY "Authenticated users can book offers" ON public.carpool_offers 
+  FOR UPDATE USING (auth.role() = 'authenticated');

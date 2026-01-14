@@ -325,6 +325,22 @@ export default function DriverDashboard() {
       if (!error) {
         setTodayEarnings(prev => prev + (rideToComplete.fare || 0));
         setActiveRides(prev => prev.filter(r => r.id !== rideId));
+        
+        // Award loyalty points to passenger (10 points per 100 KES)
+        const pointsEarned = Math.floor((rideToComplete.fare || 0) / 10);
+        if (pointsEarned > 0 && rideToComplete.passenger_id) {
+          await supabase.rpc('increment_loyalty_points', { 
+            user_id: rideToComplete.passenger_id, 
+            points: pointsEarned 
+          }).catch(err => {
+            // Fallback: direct update if RPC doesn't exist
+            supabase
+              .from('profiles')
+              .update({ loyalty_points: supabase.raw(`loyalty_points + ${pointsEarned}`) })
+              .eq('id', rideToComplete.passenger_id);
+          });
+          console.log(`Awarded ${pointsEarned} loyalty points to passenger`);
+        }
       }
     } catch (error) {
       console.error('Error completing ride:', error);

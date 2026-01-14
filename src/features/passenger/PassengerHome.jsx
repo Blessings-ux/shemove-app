@@ -179,36 +179,35 @@ export default function PassengerHome() {
 
   // Subscribe to real-time carpool offer updates
   useEffect(() => {
-    if (isCarpool) {
-      fetchCarpoolOffers();
+    // Always fetch carpool offers on mount
+    fetchCarpoolOffers();
 
-      const channel = supabase
-        .channel('carpool-offers-updates')
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'carpool_offers',
-          filter: 'status=eq.open'
-        }, (payload) => {
-          console.log('Carpool offer update:', payload);
-          if (payload.eventType === 'UPDATE') {
-            setAvailableOffers(prev => 
-              prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o)
-                  .filter(o => o.available_seats > 0)
-            );
-          } else if (payload.eventType === 'INSERT') {
-            fetchCarpoolOffers(); // Refetch to include driver info
-          } else if (payload.eventType === 'DELETE') {
-            setAvailableOffers(prev => prev.filter(o => o.id !== payload.old.id));
-          }
-        })
-        .subscribe();
+    const channel = supabase
+      .channel('carpool-offers-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'carpool_offers',
+        filter: 'status=eq.open'
+      }, (payload) => {
+        console.log('Carpool offer update:', payload);
+        if (payload.eventType === 'UPDATE') {
+          setAvailableOffers(prev => 
+            prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o)
+                .filter(o => o.available_seats > 0)
+          );
+        } else if (payload.eventType === 'INSERT') {
+          fetchCarpoolOffers(); // Refetch to include driver info
+        } else if (payload.eventType === 'DELETE') {
+          setAvailableOffers(prev => prev.filter(o => o.id !== payload.old.id));
+        }
+      })
+      .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [isCarpool]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // Run once on mount
 
   // Book a carpool offer
   const bookCarpoolOffer = async (offer) => {
@@ -677,6 +676,47 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
             <Navigation className="w-4 h-4 text-slate-400 flex-shrink-0" />
           </div>
         </div>
+
+        {/* Available Carpool Offers */}
+        {availableOffers && availableOffers.length > 0 && (
+          <div className="mt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-purple-600" />
+              <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wide">Scheduled Carpools</h4>
+            </div>
+            <div className="space-y-2">
+              {availableOffers.slice(0, 3).map(offer => (
+                <button
+                  key={offer.id}
+                  onClick={() => {
+                    setBookingStep('selecting');
+                    setIsCarpool(true);
+                  }}
+                  className="w-full flex items-center gap-4 p-4 bg-purple-50 rounded-xl hover:bg-purple-100 transition text-left border border-purple-100"
+                >
+                  <div className="w-10 h-10 bg-purple-200 rounded-full flex items-center justify-center">
+                    <Car className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-900 truncate">
+                      {offer.pickup_name} → {offer.dropoff_name}
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      {new Date(offer.departure_time).toLocaleString([], {
+                        weekday: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })} • {offer.available_seats} seats • KES {offer.fare_per_seat}/seat
+                    </div>
+                  </div>
+                  <div className="text-emerald-600 font-bold text-sm">
+                    Join
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
