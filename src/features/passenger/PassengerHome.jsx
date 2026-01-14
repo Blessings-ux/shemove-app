@@ -340,6 +340,7 @@ export default function PassengerHome() {
               setDropoffLocation={setDropoffLocation}
               estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
               estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
+              isCarpool={isCarpool} setIsCarpool={setIsCarpool}
             />
           </div>
           {/* Safe area for iOS */}
@@ -482,7 +483,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -916,14 +917,14 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
             <span className="font-medium text-slate-800">Share This Ride</span>
           </div>
           <button 
-            onClick={() => { setShareRide(!shareRide); if (!shareRide && !shareCode) generateShareCode(); }}
-            className={`w-12 h-6 rounded-full transition-colors ${shareRide ? 'bg-purple-600' : 'bg-slate-300'}`}
+            onClick={() => { setIsCarpool(!isCarpool); if (!isCarpool && !shareCode) generateShareCode(); }}
+            className={`w-12 h-6 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-300'}`}
           >
-            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${shareRide ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${isCarpool ? 'translate-x-6' : 'translate-x-0.5'}`} />
           </button>
         </div>
         
-        {shareRide && (
+        {isCarpool && (
           <div className="mt-3 pt-3 border-t border-purple-200">
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-purple-700">Save 40% by sharing!</span>
@@ -979,7 +980,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
       >
         {isRequestingRide ? 'Requesting...' : (
           estimatedFare > 0 
-            ? `Confirm Ride • KES ${shareRide ? getSharedFare() : estimatedFare}`
+            ? `Confirm Ride • KES ${isCarpool ? getSharedFare() : estimatedFare}`
             : 'Select a destination'
         )}
       </button>

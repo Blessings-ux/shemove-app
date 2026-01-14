@@ -92,25 +92,45 @@ export const useAuthStore = create((set, get) => ({
         return { error };
       }
 
-      // Fetch the user's profile to get their role
-      let profile = null;
+      // Set user immediately to allow navigation
       if (data?.user) {
-        const { data: profileData, error: profileError } = await supabase
+        set({ user: data.user, loading: false });
+
+        // Fetch profile in background with 3s timeout
+        const profilePromise = supabase
           .from("profiles")
           .select("*")
           .eq("id", data.user.id)
           .single();
 
-        if (profileError) {
-          console.error("Error fetching profile:", profileError);
-        } else {
-          profile = profileData;
-          console.log("Fetched profile on signIn:", profile);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Profile fetch timeout")), 3000)
+        );
+
+        try {
+          const { data: profileData } = await Promise.race([
+            profilePromise,
+            timeoutPromise,
+          ]);
+          if (profileData) {
+            set({ profile: profileData });
+            console.log("Profile loaded:", profileData);
+          }
+        } catch (profileErr) {
+          console.log("Using fallback profile from metadata");
+          // Use user metadata as fallback
+          const fallbackProfile = {
+            id: data.user.id,
+            full_name:
+              data.user.user_metadata?.full_name || email.split("@")[0],
+            phone: data.user.user_metadata?.phone || "",
+            role: data.user.user_metadata?.role || "passenger",
+          };
+          set({ profile: fallbackProfile });
         }
-        set({ user: data.user, profile, loading: false });
       }
 
-      return { data: { ...data, profile } };
+      return { data };
     } catch (err) {
       if (err.name !== "AbortError") {
         set({ error: err.message, loading: false });
