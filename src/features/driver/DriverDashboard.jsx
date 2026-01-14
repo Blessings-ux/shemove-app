@@ -14,7 +14,7 @@ export default function DriverDashboard() {
   const [driverData, setDriverData] = useState(null);
   const [isOnline, setIsOnline] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState(null);
-  const [activeRide, setActiveRide] = useState(null);
+  const [activeRides, setActiveRides] = useState([]);
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -45,7 +45,7 @@ export default function DriverDashboard() {
       Promise.all([
         fetchDriverData(),
         fetchTodayEarnings(),
-        fetchActiveRide()
+        fetchActiveRides()
       ]).catch(err => console.error('Error loading data:', err));
     } else {
       setIsLoading(false);
@@ -86,9 +86,12 @@ export default function DriverDashboard() {
   }, [user, profile]);
 
   // Subscribe to ride requests when online
+  // Allow subscription even with active rides IF they are shared
+  const canAcceptMore = activeRides.length === 0 || activeRides.every(r => r.ride_type === 'shared');
+
   useEffect(() => {
     let channel;
-    if (isOnline && user && !activeRide) {
+    if (isOnline && user && canAcceptMore) {
       console.log('🚗 Driver is ONLINE - subscribing to pending rides...');
       
       channel = supabase
@@ -100,6 +103,12 @@ export default function DriverDashboard() {
           filter: 'status=eq.pending'
         }, async (payload) => {
           console.log('🔔 NEW RIDE REQUEST RECEIVED:', payload.new);
+          
+          // If driver already has solo ride, ignore new requests
+          if (activeRides.some(r => r.ride_type === 'solo')) {
+            console.log('Ignoring request - driver has active solo ride');
+            return;
+          }
           
           // Fetch passenger details
           const { data: passenger } = await supabase
@@ -115,7 +124,7 @@ export default function DriverDashboard() {
             rating: 4.8,
             pickup: 'Pickup Location',
             dropoff: 'Dropoff Location',
-            distance: `${(payload.new.fare / 75).toFixed(1)} km`, // Calculate from fare
+            distance: `${(payload.new.fare / 75).toFixed(1)} km`,
             paymentMethod: 'M-Pesa'
           });
         })
@@ -135,7 +144,7 @@ export default function DriverDashboard() {
         supabase.removeChannel(channel);
       }
     };
-  }, [isOnline, user, activeRide]);
+  }, [isOnline, user, canAcceptMore, activeRides]);
 
   const fetchDriverData = async () => {
     setIsLoading(true);
@@ -184,28 +193,28 @@ export default function DriverDashboard() {
     }
   };
 
-  const fetchActiveRide = async () => {
+  const fetchActiveRides = async () => {
     try {
       const { data } = await supabase
         .from('rides')
         .select('*, passenger:profiles!rides_passenger_id_fkey(full_name, phone)')
         .eq('driver_id', user.id)
-        .in('status', ['accepted', 'ongoing'])
-        .single();
+        .in('status', ['accepted', 'ongoing']);
       
-      if (data) {
-        setActiveRide({
-          ...data,
-          passengerName: data.passenger?.full_name || 'Passenger',
-          passengerPhone: data.passenger?.phone || '',
+      if (data && data.length > 0) {
+        const formattedRides = data.map(ride => ({
+          ...ride,
+          passengerName: ride.passenger?.full_name || 'Passenger',
+          passengerPhone: ride.passenger?.phone || '',
           rating: 4.8,
           pickup: 'Pickup Location',
           dropoff: 'Dropoff Location'
-        });
+        }));
+        setActiveRides(formattedRides);
         setIsOnline(true);
       }
     } catch (error) {
-      // No active ride found - that's ok
+      console.error('Error fetching active rides:', error);
     }
   };
 
@@ -263,10 +272,8 @@ export default function DriverDashboard() {
         .eq('status', 'pending'); // Only if still pending
       
       if (!error) {
-        setActiveRide({
-          ...incomingRequest,
-          status: 'accepted'
-        });
+        // Add the new ride to the array
+        setActiveRides(prev => [...prev, { ...incomingRequest, status: 'accepted' }]);
         setIncomingRequest(null);
       }
     } catch (error) {
@@ -278,18 +285,19 @@ export default function DriverDashboard() {
     setIncomingRequest(null);
   };
 
-  const completeRide = async () => {
-    if (!activeRide) return;
+  const completeRide = async (rideId) => {
+    const rideToComplete = activeRides.find(r => r.id === rideId);
+    if (!rideToComplete) return;
     
     try {
       const { error } = await supabase
         .from('rides')
         .update({ status: 'completed', payment_status: 'paid' })
-        .eq('id', activeRide.id);
+        .eq('id', rideId);
       
       if (!error) {
-        setTodayEarnings(prev => prev + (activeRide.fare || 0));
-        setActiveRide(null);
+        setTodayEarnings(prev => prev + (rideToComplete.fare || 0));
+        setActiveRides(prev => prev.filter(r => r.id !== rideId));
       }
     } catch (error) {
       console.error('Error completing ride:', error);
@@ -314,7 +322,7 @@ export default function DriverDashboard() {
   const refreshData = () => {
     fetchDriverData();
     fetchTodayEarnings();
-    fetchActiveRide();
+    fetchActiveRides();
   };
 
   return (
@@ -362,7 +370,7 @@ export default function DriverDashboard() {
 
         {/* Map Top */}
         <div className="relative h-[45vh] flex-shrink-0 mt-20">
-          <DriverMap activeRide={activeRide} /> 
+          <DriverMap activeRides={activeRides} /> 
         </div>
 
         {/* Content Bottom */}
@@ -376,7 +384,7 @@ export default function DriverDashboard() {
               incomingRequest={incomingRequest}
               setIncomingRequest={declineRide} 
               acceptRide={acceptRide}
-              activeRide={activeRide} 
+              activeRides={activeRides} 
               completeRide={completeRide}
               isLoading={isLoading}
             />
@@ -392,7 +400,7 @@ export default function DriverDashboard() {
         
         {/* LEFT: Map Area */}
         <div className="flex-1 relative h-full">
-          <DriverMap activeRide={activeRide} />
+          <DriverMap activeRides={activeRides} />
         </div>
 
         {/* RIGHT: Sidebar */}
@@ -444,7 +452,7 @@ export default function DriverDashboard() {
               incomingRequest={incomingRequest}
               setIncomingRequest={declineRide} 
               acceptRide={acceptRide}
-              activeRide={activeRide} 
+              activeRides={activeRides} 
               completeRide={completeRide}
               isLoading={isLoading}
             />
@@ -575,7 +583,7 @@ export default function DriverDashboard() {
 
 // === SUB-COMPONENTS ===
 
-function DriverMap({ activeRide }) {
+function DriverMap({ activeRides }) {
   return (
     <div className="relative w-full h-full bg-slate-100">
       <iframe 
@@ -584,14 +592,16 @@ function DriverMap({ activeRide }) {
         className="w-full h-full opacity-100 mix-blend-multiply grayscale-[0.3]"
       ></iframe>
       
-      {/* Navigation Overlay */}
-      {activeRide && (
+      {/* Navigation Overlay - Show for any active ride */}
+      {activeRides && activeRides.length > 0 && (
         <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-emerald-700 text-white p-4 shadow-xl z-20 rounded-none md:rounded-lg">
             <div className="flex items-start gap-4">
               <Navigation className="w-10 h-10 mt-1 opacity-90" />
               <div>
-                <div className="text-emerald-100 font-medium text-sm">200m</div>
-                <div className="font-bold text-2xl leading-tight">Turn Right onto Kimathi St</div>
+                <div className="text-emerald-100 font-medium text-sm">
+                  {activeRides.length} Active {activeRides.length === 1 ? 'Ride' : 'Rides'}
+                </div>
+                <div className="font-bold text-2xl leading-tight">Navigating...</div>
               </div>
             </div>
         </div>
@@ -600,11 +610,13 @@ function DriverMap({ activeRide }) {
   );
 }
 
-function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRide, completeRide, isLoading }) {
+function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRides, completeRide, isLoading }) {
+  const hasActiveRides = activeRides && activeRides.length > 0;
+
   return (
     <>
       {/* 1. OFFLINE STATE - THE "GO" BUTTON */}
-      {!isOnline && !activeRide && (
+      {!isOnline && !hasActiveRides && (
         <div className="flex flex-col items-center justify-center h-full min-h-[40vh]">
           <button 
             onClick={handleGoOnline}
@@ -620,7 +632,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
       )}
 
       {/* 2. ONLINE / SEARCHING - MINIMAL STATUS */}
-      {isOnline && !incomingRequest && !activeRide && (
+      {isOnline && !incomingRequest && !hasActiveRides && (
         <div className="flex flex-col items-center justify-center h-full py-10">
           <div className="relative mb-6">
             <span className="absolute inset-0 rounded-full bg-blue-100 animate-ping opacity-75 duration-1000"></span>
@@ -710,56 +722,64 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
         </div>
       )}
 
-      {/* 4. ACTIVE RIDE - COMMAND CENTER */}
-      {activeRide && (
-        <div className="animate-in fade-in h-full flex flex-col">
-          {/* Passenger Strip */}
-          <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center text-lg font-bold">
-                {activeRide.passengerName?.charAt(0) || 'P'}
+      {/* 4. ACTIVE RIDES - MULTI-RIDE LIST */}
+      {hasActiveRides && (
+        <div className="animate-in fade-in space-y-4">
+          {/* Header showing ride count */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-slate-800">
+              {activeRides.length} Active {activeRides.length === 1 ? 'Ride' : 'Rides'}
+            </h3>
+            {activeRides.some(r => r.ride_type === 'shared') && (
+              <div className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">
+                Shared Pool
               </div>
-              <div>
-                <div className="font-bold text-slate-900">{activeRide.passengerName}</div>
-                <div className="flex items-center text-xs text-slate-500 font-bold bg-white px-2 py-0.5 rounded-full border border-slate-200 w-fit mt-1">
-                   {activeRide.rating} ★
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {activeRide.passengerPhone && (
-                <a href={`tel:${activeRide.passengerPhone}`} className="p-3 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-50">
-                  <Phone className="w-5 h-5" />
-                </a>
-              )}
-              <button className="p-3 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-50">
-                <Shield className="w-5 h-5" />
-              </button>
-            </div>
+            )}
           </div>
 
-          <div className="flex-1 space-y-6">
-             <div className="px-2">
-                <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Destination</div>
-                <div className="text-2xl font-bold text-slate-900 leading-tight">{activeRide.dropoff}</div>
-             </div>
-             
-             <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex items-center justify-between">
-                <div>
-                   <div className="text-emerald-800 text-xs font-bold uppercase opacity-70">Payment</div>
-                   <div className="font-black text-xl text-emerald-900">KES {activeRide.fare}</div>
+          {/* Render each active ride as a card */}
+          {activeRides.map((ride) => (
+            <div key={ride.id} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+              {/* Passenger Strip */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold">
+                    {ride.passengerName?.charAt(0) || 'P'}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-900">{ride.passengerName}</div>
+                    <div className="text-xs text-slate-500">
+                      {ride.ride_type === 'shared' && <span className="text-purple-600 font-bold mr-2">SHARED</span>}
+                      {ride.dropoff}
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-white/50 px-3 py-1 rounded text-emerald-800 text-xs font-bold">
-                   M-PESA
-                </div>
-             </div>
-          </div>
+                {ride.passengerPhone && (
+                  <a href={`tel:${ride.passengerPhone}`} className="p-2 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-100">
+                    <Phone className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
 
+              {/* Fare & Complete */}
+              <div className="flex items-center justify-between">
+                <div className="font-black text-xl text-emerald-700">KES {ride.fare}</div>
+                <button 
+                  onClick={() => completeRide(ride.id)}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 transition"
+                >
+                  Complete
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Go Offline button */}
           <button 
-            onClick={completeRide}
-            className="w-full mt-6 bg-emerald-600 text-white font-bold text-lg py-5 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition active:scale-95 uppercase tracking-wide"
+            onClick={handleGoOffline}
+            className="w-full mt-4 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition text-sm uppercase tracking-wide"
           >
-            Complete Trip
+            <Power className="w-4 h-4" /> Go Offline
           </button>
         </div>
       )}

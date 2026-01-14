@@ -658,17 +658,29 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
   const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
   const [isSearching, setIsSearching] = useState(false);
   
-  // Debounced search
+  // Debounced search - triggers geocoding
   useEffect(() => {
+    const query = activeSearchField === 'pickup' ? pickupText : destination;
+    
+    // Clear results when not searching
+    if (!activeSearchField || !query || query.length <= 2) {
+      setSearchResults([]);
+      return;
+    }
+
     const timer = setTimeout(async () => {
-      const query = activeSearchField === 'pickup' ? pickupText : destination;
-      if (activeSearchField && query && query.length > 2) {
-        setIsSearching(true);
+      console.log('🔍 Searching for:', query);
+      setIsSearching(true);
+      try {
         const results = await searchLocation(query);
+        console.log('📍 Results:', results);
         setSearchResults(results);
-        setIsSearching(false);
+      } catch (err) {
+        console.error('Search error:', err);
+        setSearchResults([]);
       }
-    }, 1000); // 1.0s debounce to respect API limits
+      setIsSearching(false);
+    }, 500); // 500ms debounce - faster response
 
     return () => clearTimeout(timer);
   }, [pickupText, destination, activeSearchField]);
@@ -709,59 +721,70 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
       </div>
 
       {/* INPUTS */}
-      <div className="space-y-2 relative">
+      <div className="space-y-3 relative">
         {/* Pickup */}
-        <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-transparent transition">
-           <MapPin className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-200 transition">
+           <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
+             <MapPin className="w-5 h-5 text-emerald-600" />
+           </div>
            <div className="flex-1">
-             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Pickup</div>
+             <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Pickup</div>
              <input 
                 type="text" 
                 value={pickupText}
                 onChange={(e) => { setPickupText(e.target.value); setActiveSearchField('pickup'); }}
                 onFocus={() => setActiveSearchField('pickup')}
-                placeholder="Current Location"
-                className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:ring-0 text-slate-800 placeholder:text-slate-300"
+                placeholder="Enter pickup location..."
+                className="w-full bg-transparent border-none p-0 text-base font-semibold focus:ring-0 focus:outline-none text-slate-800 placeholder:text-slate-400"
              />
            </div>
-           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />}
         </div>
 
         {/* Destination */}
-        <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-transparent transition">
-           <MapPin className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-200 transition">
+           <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+             <MapPin className="w-5 h-5 text-red-500" />
+           </div>
            <div className="flex-1">
-             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Dropoff</div>
+             <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Dropoff</div>
              <input 
                 type="text" 
                 value={destination}
                 onChange={(e) => { setDestination(e.target.value); setActiveSearchField('destination'); }}
                 onFocus={() => setActiveSearchField('destination')}
-                placeholder="Where to?"
-                className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:ring-0 text-slate-800 placeholder:text-slate-300"
+                placeholder="Where are you going?"
+                className="w-full bg-transparent border-none p-0 text-base font-semibold focus:ring-0 focus:outline-none text-slate-800 placeholder:text-slate-400"
              />
            </div>
-           {activeSearchField === 'destination' && isSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+           {activeSearchField === 'destination' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-red-500" />}
         </div>
 
         {/* SEARCH RESULTS DROPDOWN */}
         {activeSearchField && searchResults.length > 0 && (
-          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-xl shadow-xl mt-2 border border-slate-100 overflow-hidden max-h-60 overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-2xl shadow-2xl mt-2 border border-slate-200 overflow-hidden max-h-64 overflow-y-auto">
              {searchResults.map((result, idx) => (
                <button 
                  key={idx}
                  onClick={() => handleSelectLocation(result)}
-                 className="w-full text-left p-3 hover:bg-slate-50 flex items-center gap-3 border-b border-slate-50 last:border-0"
+                 className="w-full text-left p-4 hover:bg-emerald-50 flex items-center gap-3 border-b border-slate-100 last:border-0 transition"
                >
-                 <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <MapPin className="w-4 h-4 text-slate-500" />
+                 <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="w-5 h-5 text-slate-600" />
                  </div>
-                 <div>
-                    <div className="font-semibold text-sm text-slate-800">{result.name}</div>
-                    <div className="text-xs text-slate-400 truncate max-w-[200px]">{result.full_name}</div>
+                 <div className="flex-1 min-w-0">
+                    <div className="font-bold text-base text-slate-800">{result.name}</div>
+                    <div className="text-sm text-slate-500 truncate">{result.full_name}</div>
                  </div>
                </button>
              ))}
+          </div>
+        )}
+
+        {/* No results message */}
+        {activeSearchField && !isSearching && searchResults.length === 0 && (activeSearchField === 'pickup' ? pickupText : destination).length > 2 && (
+          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-2xl shadow-xl mt-2 border border-slate-200 p-4 text-center">
+            <div className="text-slate-500 text-sm">No locations found. Try a different search.</div>
           </div>
         )}
       </div>

@@ -1,10 +1,11 @@
 // src/services/geocoding.js
 
-// Using OpenStreetMap Nominatim API (Free, no key required)
+// Using OpenStreetMap Nominatim API via Vite proxy (bypasses CORS)
 // Usage Policy: Maximum 1 request per second, valid User-Agent required.
 
-const NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org/search";
-const REVERSE_GEOCODE_URL = "https://nominatim.openstreetmap.org/reverse";
+// Use proxy in development, direct URL in production
+const NOMINATIM_SEARCH = "/api/nominatim/search";
+const NOMINATIM_REVERSE = "/api/nominatim/reverse";
 
 export async function searchLocation(query) {
   if (!query || query.length < 3) return [];
@@ -17,14 +18,16 @@ export async function searchLocation(query) {
       addressdetails: 1,
     });
 
-    const response = await fetch(`${NOMINATIM_BASE_URL}?${params.toString()}`, {
-      headers: {
-        "User-Agent": "JiraniRide-App/1.0", // Required by Nominatim
-        "Accept-Language": "en",
-      },
-    });
+    const response = await fetch(`${NOMINATIM_SEARCH}?${params.toString()}`);
 
-    if (!response.ok) throw new Error("Geocoding service unavailable");
+    if (!response.ok) {
+      console.error(
+        "Nominatim response:",
+        response.status,
+        response.statusText
+      );
+      throw new Error("Geocoding service unavailable");
+    }
 
     const data = await response.json();
 
@@ -52,15 +55,7 @@ export async function reverseGeocode(lat, lng) {
       addressdetails: 1,
     });
 
-    const response = await fetch(
-      `${REVERSE_GEOCODE_URL}?${params.toString()}`,
-      {
-        headers: {
-          "User-Agent": "JiraniRide-App/1.0",
-          "Accept-Language": "en",
-        },
-      }
-    );
+    const response = await fetch(`${NOMINATIM_REVERSE}?${params.toString()}`);
 
     if (!response.ok) throw new Error("Reverse geocoding error");
 

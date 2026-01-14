@@ -1,6 +1,7 @@
 // src/services/routing.js
 
-const OSRM_BASE_URL = "https://router.project-osrm.org/route/v1/driving";
+// Use proxy in development to bypass CORS
+const OSRM_BASE_URL = "/api/osrm/route/v1/driving";
 
 /**
  * Fetches routing data between two points (pickup and dropoff).
