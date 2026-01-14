@@ -2,8 +2,8 @@
 
 // Per-kilometer rates by vehicle type
 export const RATES_PER_KM = {
-  boda: 50, // Cheapest - motorcycle
-  tuktuk: 65, // Mid-range - auto-rickshaw
+  tuktuk: 40, // Cheapest - auto-rickshaw
+  boda: 55, // Mid-range - motorcycle
   taxi: 100, // Premium - car
 };
 
@@ -15,8 +15,8 @@ export const CARPOOL_DISCOUNT = 0.3; // 30% off
 
 // Minimum fares by vehicle type
 export const MIN_FARES = {
+  tuktuk: 40,
   boda: 50,
-  tuktuk: 100,
   taxi: 200,
 };
 
