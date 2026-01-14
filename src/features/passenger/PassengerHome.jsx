@@ -5,7 +5,8 @@ import { supabase } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import Map from '../../components/ui/Map';
-import { calculateDistance, calculateFare, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
+import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
+import { searchLocation, reverseGeocode } from '../../services/geocoding';
 
 export default function PassengerHome() {
   const navigate = useNavigate();
@@ -624,365 +625,198 @@ function MobileBottomSheet(props) {
 }
 
 function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool }) {
-  const [shareCode, setShareCode] = useState('');
-  const [pickupText, setPickupText] = useState(pickupLocation ? '📍 Current Location' : '');
-  const [localPickup, setLocalPickup] = useState(pickupLocation);
-  const [dropoffCoords, setDropoffCoords] = useState(null);
+  const [pickupText, setPickupText] = useState(pickupLocation ? 'Current Location' : '');
+  const [searchResults, setSearchResults] = useState([]);
+  const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
+  const [isSearching, setIsSearching] = useState(false);
   
-  // Popular destinations with real GPS coordinates (Greater Nairobi area)
-  const popularDestinations = [
-    // Universities
-    { name: 'Zetech Ruiru', lat: -1.1450, lng: 36.9610 },
-    { name: 'JKUAT Main Gate', lat: -1.0922, lng: 37.0130 },
-    { name: 'JKUAT Gate C', lat: -1.0950, lng: 37.0150 },
-    { name: 'Kenyatta University', lat: -1.1800, lng: 36.9280 },
-    { name: 'USIU Africa', lat: -1.2210, lng: 36.8880 },
-    
-    // Towns & Estates
-    { name: 'Ruiru Town', lat: -1.1490, lng: 36.9600 },
-    { name: 'Juja Town', lat: -1.0990, lng: 37.0100 },
-    { name: 'Thika Town', lat: -1.0332, lng: 37.0693 },
-    { name: 'Kahawa West', lat: -1.1850, lng: 36.9170 },
-    { name: 'Kasarani', lat: -1.2200, lng: 36.8950 },
-    
-    // Malls & Shopping
-    { name: 'Yaya Centre', lat: -1.2935, lng: 36.7840 },
-    { name: 'Sarit Centre', lat: -1.2620, lng: 36.8030 },
-    { name: 'Thika Road Mall', lat: -1.2190, lng: 36.8870 },
-    { name: 'Garden City Mall', lat: -1.2280, lng: 36.8790 },
-    { name: 'Two Rivers Mall', lat: -1.2150, lng: 36.8050 },
-    { name: 'Juja City Mall', lat: -1.1010, lng: 37.0080 },
-    { name: 'Gateway Mall Thika', lat: -1.0320, lng: 37.0690 },
-    { name: 'The Hub Karen', lat: -1.3260, lng: 36.7120 },
-    
-    // Nairobi Central & Suburbs
-    { name: 'Nairobi CBD', lat: -1.2864, lng: 36.8172 },
-    { name: 'Westlands', lat: -1.2674, lng: 36.8115 },
-    { name: 'Hurlingham', lat: -1.2930, lng: 36.7880 },
-    { name: 'Kilimani', lat: -1.2890, lng: 36.7850 },
-    { name: 'Lavington', lat: -1.2750, lng: 36.7680 },
-    { name: 'Karen', lat: -1.3180, lng: 36.7060 },
-    { name: 'Lang\'ata', lat: -1.3400, lng: 36.7350 },
-    { name: 'JKIA Airport', lat: -1.3190, lng: 36.9280 },
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const query = activeSearchField === 'pickup' ? pickupText : destination;
+      if (activeSearchField && query && query.length > 2) {
+        setIsSearching(true);
+        const results = await searchLocation(query);
+        setSearchResults(results);
+        setIsSearching(false);
+      }
+    }, 1000); // 1.0s debounce to respect API limits
+
+    return () => clearTimeout(timer);
+  }, [pickupText, destination, activeSearchField]);
+
+  const handleSelectLocation = (result) => {
+    if (activeSearchField === 'pickup') {
+      const newPickup = { lat: result.lat, lng: result.lng };
+      setPickupLocation(newPickup);
+      setPickupText(result.name);
+    } else {
+      setDestination(result.name);
+      setDropoffLocation({ lat: result.lat, lng: result.lng });
+      
+      if (pickupLocation) {
+        const dist = calculateDistance(pickupLocation.lat, pickupLocation.lng, result.lat, result.lng);
+        setEstimatedDistance(dist);
+        // Fare will be updated when vehicle or distance changes
+        if (setEstimatedFare) {
+             setEstimatedFare(calculateFare(dist, selectedVehicle, isCarpool));
+        }
+      }
+    }
+    setSearchResults([]);
+    setActiveSearchField(null);
+  };
+
+  const vehicles = [
+    { id: 'boda', icon: Bike, label: 'Boda', desc: 'Fast & affordable' },
+    { id: 'tuktuk', icon: Car, label: 'Tuktuk', desc: 'Good for groups' },
+    { id: 'taxi', icon: Car, label: 'Taxi', desc: 'Comfortable' },
   ];
-  
-  // Use centralized pricing utility with carpool support
-  const getFare = (distance, vehicle) => calculateFare(distance, vehicle, isCarpool);
-  const getSharedFare = () => Math.round((estimatedFare || 100) * (1 - CARPOOL_DISCOUNT));
-  
-  const handleSelectDestination = (dest) => {
-    setDestination(dest.name);
-    if (setDropoffLocation) setDropoffLocation({ lat: dest.lat, lng: dest.lng });
-    
-    if (pickupLocation) {
-      const distance = calculateDistance(pickupLocation.lat, pickupLocation.lng, dest.lat, dest.lng);
-      const fare = getFare(distance, selectedVehicle);
-      if (setEstimatedDistance) setEstimatedDistance(distance);
-      if (setEstimatedFare) setEstimatedFare(fare);
-    }
-  };
-  
-  const handleVehicleChange = (vehicle) => {
-    setSelectedVehicle(vehicle);
-    // Recalculate fare for new vehicle type
-    if (estimatedDistance > 0) {
-      const fare = getFare(estimatedDistance, vehicle);
-      if (setEstimatedFare) setEstimatedFare(fare);
-    }
-  };
-  
-  const generateShareCode = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setShareCode(code);
-  };
-  
-  const canConfirm = destination && destination.length > 0 && estimatedFare > 0;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-slate-800">Book a Ride</h3>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-lg font-bold text-slate-800">Plan your ride</h3>
         <button onClick={() => setBookingStep('idle')} className="text-slate-400 hover:text-slate-700 text-sm">Cancel</button>
       </div>
-      
-      {/* Pickup Location Input */}
-      <div className="mb-3">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-          <span className="text-sm text-slate-500">Pickup Point</span>
+
+      {/* INPUTS */}
+      <div className="space-y-2 relative">
+        {/* Pickup */}
+        <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-transparent transition">
+           <MapPin className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+           <div className="flex-1">
+             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Pickup</div>
+             <input 
+                type="text" 
+                value={pickupText}
+                onChange={(e) => { setPickupText(e.target.value); setActiveSearchField('pickup'); }}
+                onFocus={() => setActiveSearchField('pickup')}
+                placeholder="Current Location"
+                className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:ring-0 text-slate-800 placeholder:text-slate-300"
+             />
+           </div>
+           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
         </div>
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            value={pickupText}
-            onChange={(e) => setPickupText(e.target.value)}
-            placeholder="Where to pick you up? (e.g. Yaya Centre)" 
-            className="flex-1 p-4 bg-slate-100 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-          />
-          <button
-            onClick={() => {
-              if (pickupText.trim()) {
-                // Check if it's a known location
-                const knownPickup = popularDestinations.find(d => 
-                  d.name.toLowerCase().includes(pickupText.trim().toLowerCase())
-                );
-                
-                if (knownPickup) {
-                  // Use real coordinates from popular destinations
-                  const newPickup = { lat: knownPickup.lat, lng: knownPickup.lng };
-                  // Update parent state through setter if available
-                  if (typeof setPickupLocation === 'function') {
-                    setPickupLocation(newPickup);
-                  }
-                  setLocalPickup(newPickup);
-                  setPickupText(knownPickup.name);
-                  console.log(`Pickup set to ${knownPickup.name}: ${knownPickup.lat}, ${knownPickup.lng}`);
-                  
-                  // Recalculate distance if dropoff is already set
-                  if (dropoffCoords) {
-                    const distance = calculateDistance(newPickup.lat, newPickup.lng, dropoffCoords.lat, dropoffCoords.lng);
-                    if (setEstimatedDistance) setEstimatedDistance(distance);
-                    if (setEstimatedFare) setEstimatedFare(getFare(distance, selectedVehicle));
-                    console.log(`Distance recalculated: ${distance.toFixed(2)}km`);
-                  }
-                } else {
-                  alert(`"${pickupText}" not found. Try: Yaya Centre, Westlands, Nairobi CBD, etc.`);
-                }
-              } else {
-                // Use GPS location
-                if (navigator.geolocation) {
-                  navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                      const gpsPickup = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                      setLocalPickup(gpsPickup);
-                      setPickupText('📍 Current GPS Location');
-                      console.log('GPS pickup:', gpsPickup);
-                    },
-                    () => {
-                      setPickupText('📍 Default Location');
-                      console.log('Using default pickup');
-                    }
-                  );
-                }
-              }
-            }}
-            className="px-6 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition flex items-center gap-2"
-          >
-            <MapPin className="w-5 h-5" />
-            <span className="hidden sm:inline">Set</span>
-          </button>
+
+        {/* Destination */}
+        <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-transparent transition">
+           <MapPin className="w-5 h-5 text-red-500 flex-shrink-0" />
+           <div className="flex-1">
+             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Dropoff</div>
+             <input 
+                type="text" 
+                value={destination}
+                onChange={(e) => { setDestination(e.target.value); setActiveSearchField('destination'); }}
+                onFocus={() => setActiveSearchField('destination')}
+                placeholder="Where to?"
+                className="w-full bg-transparent border-none p-0 text-sm font-semibold focus:ring-0 text-slate-800 placeholder:text-slate-300"
+             />
+           </div>
+           {activeSearchField === 'destination' && isSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
         </div>
-      </div>
-      
-      {/* Destination Input with Confirm Button */}
-      <div className="mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-2 h-2 bg-red-500 rounded-full" />
-          <span className="text-sm text-slate-500">Drop-off Point</span>
-        </div>
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            value={destination} 
-            onChange={(e) => setDestination(e.target.value)} 
-            placeholder="Where are you going? (e.g. Zetech Ruiru)" 
-            className="flex-1 p-4 bg-slate-100 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-          />
-          <button
-            onClick={() => {
-              // Use localPickup if set, otherwise use pickupLocation from props
-              const effectivePickup = localPickup || pickupLocation;
-              
-              if (destination.trim() && effectivePickup) {
-                // Check if it's a popular destination with real coordinates (partial match)
-                const popularDest = popularDestinations.find(d => 
-                  d.name.toLowerCase().includes(destination.trim().toLowerCase()) ||
-                  destination.trim().toLowerCase().includes(d.name.toLowerCase())
-                );
-                
-                let dropoff;
-                if (popularDest) {
-                  // Use real GPS coordinates from popular destinations
-                  dropoff = { lat: popularDest.lat, lng: popularDest.lng };
-                  setDestination(popularDest.name); // Update to full name
-                } else {
-                  // For unknown destinations, create a reasonable dropoff point
-                  const distanceKm = 3 + Math.random() * 4;
-                  const angle = Math.random() * 2 * Math.PI;
-                  dropoff = {
-                    lat: effectivePickup.lat + (distanceKm / 111) * Math.cos(angle),
-                    lng: effectivePickup.lng + (distanceKm / (111 * Math.cos(effectivePickup.lat * Math.PI / 180))) * Math.sin(angle)
-                  };
-                }
-                
-                // Save dropoff coordinates
-                setDropoffCoords(dropoff);
-                
-                // Calculate REAL distance using Haversine formula
-                const realDistance = calculateDistance(
-                  effectivePickup.lat, effectivePickup.lng,
-                  dropoff.lat, dropoff.lng
-                );
-                
-                // Update state with real values
-                if (setDropoffLocation) setDropoffLocation(dropoff);
-                if (setEstimatedDistance) setEstimatedDistance(realDistance);
-                if (setEstimatedFare) setEstimatedFare(getFare(realDistance, selectedVehicle));
-                
-                console.log(`Route: ${pickupText || 'Current Location'} → ${destination}`);
-                console.log(`Distance: ${realDistance.toFixed(2)}km | Fare: KES ${getFare(realDistance, selectedVehicle)}`);
-                console.log(`Distance calculated: ${realDistance.toFixed(2)}km from pickup to ${destination}`);
-              }
-            }}
-            disabled={!destination.trim()}
-            className="px-6 py-4 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            <Navigation className="w-5 h-5" />
-            <span className="hidden sm:inline">Set</span>
-          </button>
-        </div>
-      </div>
-      
-      {/* Popular Destinations */}
-      <div className="mb-4">
-        <h4 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">Popular Destinations</h4>
-        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-          {popularDestinations.map((dest) => (
-            <button
-              key={dest.name}
-              onClick={() => handleSelectDestination(dest)}
-              className={`p-3 rounded-xl text-left transition text-sm ${
-                destination === dest.name 
-                  ? 'bg-emerald-100 border-2 border-emerald-500 text-emerald-800' 
-                  : 'bg-slate-50 hover:bg-slate-100 border border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-slate-400" />
-                <span className="font-medium truncate">{dest.name}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-      
-      {/* Distance & Fare Preview */}
-      {estimatedFare > 0 && (
-        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl mb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm text-emerald-700 font-medium">Estimated Distance</div>
-              <div className="text-lg font-bold text-emerald-900">{(estimatedDistance || 0).toFixed(1)} km</div>
-            </div>
-            <div className="text-right">
-              <div className="text-sm text-emerald-700 font-medium">Estimated Fare</div>
-              <div className="text-2xl font-bold text-emerald-900">KES {estimatedFare}</div>
-              <div className="text-xs text-emerald-600">@ KES 75/km</div>
-            </div>
+
+        {/* SEARCH RESULTS DROPDOWN */}
+        {activeSearchField && searchResults.length > 0 && (
+          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-xl shadow-xl mt-2 border border-slate-100 overflow-hidden max-h-60 overflow-y-auto">
+             {searchResults.map((result, idx) => (
+               <button 
+                 key={idx}
+                 onClick={() => handleSelectLocation(result)}
+                 className="w-full text-left p-3 hover:bg-slate-50 flex items-center gap-3 border-b border-slate-50 last:border-0"
+               >
+                 <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="w-4 h-4 text-slate-500" />
+                 </div>
+                 <div>
+                    <div className="font-semibold text-sm text-slate-800">{result.name}</div>
+                    <div className="text-xs text-slate-400 truncate max-w-[200px]">{result.full_name}</div>
+                 </div>
+               </button>
+             ))}
           </div>
-        </div>
-      )}
-      
-      {/* Vehicle Selection */}
-      <div className="mb-4">
-        <h4 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">Select Vehicle</h4>
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { type: 'boda', label: 'Boda', icon: Bike, min: 50 },
-            { type: 'tuktuk', label: 'TukTuk', icon: Zap, min: 100 },
-            { type: 'taxi', label: 'Taxi', icon: Car, min: 200 },
-          ].map(({ type, label, icon: Icon, min }) => (
-            <button
-              key={type}
-              onClick={() => handleVehicleChange(type)}
-              className={`p-3 rounded-xl flex flex-col items-center gap-1 transition ${
-                selectedVehicle === type 
-                  ? 'bg-emerald-600 text-white' 
-                  : 'bg-slate-50 hover:bg-slate-100'
-              }`}
-            >
-              <Icon className={`w-6 h-6 ${selectedVehicle === type ? 'text-white' : 'text-slate-600'}`} />
-              <span className="text-xs font-medium">{label}</span>
-              <span className="text-[10px] opacity-70">min KES {min}</span>
-            </button>
-          ))}
-        </div>
+        )}
       </div>
-      
-      {/* Share Ride Toggle */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 p-4 rounded-xl mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
+
+      {/* CARPOOL TOGGLE */}
+      <div className="flex items-center justify-between p-3 bg-purple-50 rounded-xl border border-purple-100">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
             <Users className="w-5 h-5 text-purple-600" />
-            <span className="font-medium text-slate-800">Share This Ride</span>
           </div>
-          <button 
-            onClick={() => { setIsCarpool(!isCarpool); if (!isCarpool && !shareCode) generateShareCode(); }}
-            className={`w-12 h-6 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-300'}`}
-          >
-            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${isCarpool ? 'translate-x-6' : 'translate-x-0.5'}`} />
-          </button>
+          <div>
+            <div className="font-bold text-slate-800 text-sm">Carpool</div>
+            <div className="text-xs text-purple-600 font-medium">Save 30% on fares</div>
+          </div>
         </div>
-        
-        {isCarpool && (
-          <div className="mt-3 pt-3 border-t border-purple-200">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-purple-700">Save 40% by sharing!</span>
-              <span className="font-bold text-purple-600">KES {getSharedFare(selectedVehicle)} each</span>
-            </div>
-            
-            {/* Share Code */}
-            <div className="bg-white p-3 rounded-lg mb-2">
-              <div className="text-xs text-slate-500 mb-1">Your Share Code</div>
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold tracking-wider text-purple-700">{shareCode}</span>
-                <button 
-                  onClick={() => navigator.clipboard?.writeText(shareCode)}
-                  className="text-xs text-purple-600 font-medium px-3 py-1 bg-purple-50 rounded-full"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-            
-            {/* Join with Code */}
-            {!showJoinInput ? (
-              <button 
-                onClick={() => setShowJoinInput(true)}
-                className="text-xs text-purple-600 font-medium"
-              >
-                Or join someone else's ride →
-              </button>
-            ) : (
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  placeholder="Enter code..."
-                  maxLength={6}
-                  className="flex-1 p-2 bg-white border border-purple-200 rounded-lg text-sm uppercase tracking-wider"
-                />
-                <button className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium">
-                  Join
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <button 
+          onClick={() => setIsCarpool(!isCarpool)}
+          className={`relative w-12 h-7 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-200'}`}
+        >
+          <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${isCarpool ? 'left-6' : 'left-1'}`} />
+        </button>
       </div>
-      
-      {/* Confirm Button */}
+
+      {/* VEHICLE SELECTION LIST */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Ride</h4>
+        {vehicles.map(v => {
+          const fare = estimatedDistance > 0 ? calculateFare(estimatedDistance, v.id, isCarpool) : 0;
+          const isSelected = selectedVehicle === v.id;
+          
+          return (
+            <button 
+              key={v.id}
+              onClick={() => {
+                setSelectedVehicle(v.id);
+                if (estimatedDistance > 0 && setEstimatedFare) {
+                    setEstimatedFare(calculateFare(estimatedDistance, v.id, isCarpool));
+                }
+              }}
+              className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+                isSelected 
+                ? 'border-emerald-500 bg-emerald-50 shadow-sm' 
+                : 'border-transparent bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-4">
+                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? 'bg-white text-emerald-600' : 'bg-white text-slate-500'}`}>
+                    <v.icon className="w-6 h-6" />
+                 </div>
+                 <div className="text-left">
+                    <div className={`font-bold text-sm ${isSelected ? 'text-emerald-900' : 'text-slate-900'}`}>{v.label}</div>
+                    <div className="text-xs text-slate-500">{v.desc}</div>
+                 </div>
+              </div>
+              <div className="text-right">
+                {fare > 0 ? (
+                  <>
+                     <div className="font-bold text-lg text-slate-900">KES {fare}</div>
+                     {isCarpool && <div className="text-[10px] text-purple-600 font-bold line-through opacity-60">KES {Math.round(fare / (1 - CARPOOL_DISCOUNT))}</div>}
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-400 font-medium">--</div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* CONFIRM BUTTON */}
       <button 
-        onClick={handleRequestRide} 
-        disabled={!canConfirm || isRequestingRide} 
-        className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={() => {
+          // Final check before requesting
+          if (estimatedDistance > 0) {
+             const finalFare = calculateFare(estimatedDistance, selectedVehicle, isCarpool);
+             if (setEstimatedFare) setEstimatedFare(finalFare);
+             handleRequestRide();
+          }
+        }}
+        disabled={estimatedDistance <= 0 || isRequestingRide}
+        className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
-        {isRequestingRide ? 'Requesting...' : (
-          estimatedFare > 0 
-            ? `Confirm Ride • KES ${isCarpool ? getSharedFare() : estimatedFare}`
-            : 'Select a destination'
-        )}
+        {isRequestingRide ? <Loader2 className="w-6 h-6 animate-spin" /> : <span>Confirm {vehicles.find(v => v.id === selectedVehicle)?.label}</span>}
       </button>
     </div>
   );
