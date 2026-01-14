@@ -246,15 +246,20 @@ export default function DriverDashboard() {
   };
 
   const handleGoOffline = async () => {
+    console.log('Going offline...');
     try {
       const { error } = await supabase
         .from('drivers')
         .update({ is_online: false, updated_at: new Date().toISOString() })
         .eq('id', user.id);
       
-      if (!error) {
+      if (error) {
+        console.error('Error updating driver status:', error);
+      } else {
+        console.log('Successfully went offline');
         setIsOnline(false);
         setIncomingRequest(null);
+        setActiveRides([]); // Clear active rides when going offline
       }
     } catch (error) {
       console.error('Error going offline:', error);
