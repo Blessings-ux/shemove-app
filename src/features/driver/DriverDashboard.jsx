@@ -25,6 +25,16 @@ export default function DriverDashboard() {
     darkMode: false,
     language: 'English'
   });
+  
+  // Profile Editing State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    phone: '',
+    vehicle_type: 'boda',
+    plate_number: ''
+  });
 
   // Dark mode effect
   useEffect(() => {
@@ -324,6 +334,69 @@ export default function DriverDashboard() {
     }
   };
 
+  // Initialize profile form when settings open
+  const openSettings = () => {
+    setProfileForm({
+      full_name: profile?.full_name || '',
+      phone: profile?.phone || '',
+      vehicle_type: driverData?.vehicle_type || 'boda',
+      plate_number: driverData?.plate_number || ''
+    });
+    setIsEditingProfile(false);
+    setShowSettings(true);
+  };
+
+  // Save profile changes
+  const handleSaveProfile = async () => {
+    setIsSavingProfile(true);
+    try {
+      // Update profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: profileForm.full_name,
+          phone: profileForm.phone
+        })
+        .eq('id', user.id);
+
+      if (profileError) throw profileError;
+
+      // Update drivers table
+      const { error: driverError } = await supabase
+        .from('drivers')
+        .update({
+          vehicle_type: profileForm.vehicle_type,
+          plate_number: profileForm.plate_number,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (driverError) throw driverError;
+
+      // Update local state
+      useAuthStore.setState({
+        profile: {
+          ...profile,
+          full_name: profileForm.full_name,
+          phone: profileForm.phone
+        }
+      });
+      setDriverData(prev => ({
+        ...prev,
+        vehicle_type: profileForm.vehicle_type,
+        plate_number: profileForm.plate_number
+      }));
+      
+      setIsEditingProfile(false);
+      console.log('Profile saved successfully');
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      alert('Failed to save profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   const refreshData = () => {
     fetchDriverData();
     fetchTodayEarnings();
@@ -364,7 +437,7 @@ export default function DriverDashboard() {
                 <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
               </button>
               <button 
-                onClick={() => setShowSettings(true)}
+                onClick={openSettings}
                 className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
               >
                 <Settings className="w-6 h-6" />
@@ -424,7 +497,7 @@ export default function DriverDashboard() {
                   <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
                 </button>
                 <button 
-                  onClick={() => setShowSettings(true)}
+                  onClick={openSettings}
                   className="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600"
                 >
                   <Settings className="w-6 h-6" />
@@ -477,20 +550,89 @@ export default function DriverDashboard() {
           </div>
           
           <div className="p-5 space-y-6 max-w-2xl mx-auto">
-            {/* Driver Info */}
+            {/* Driver Profile - Editable */}
             <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xl font-bold">
-                  {profile?.full_name?.charAt(0) || 'D'}
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900">{profile?.full_name || 'Driver'}</div>
-                  <div className="text-sm text-slate-500">{profile?.phone || 'No phone'}</div>
-                  <div className="text-xs text-emerald-600 font-medium mt-1 capitalize">
-                    {driverData?.vehicle_type || 'Boda'} • {driverData?.plate_number || 'No plate'}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xl font-bold">
+                    {profile?.full_name?.charAt(0) || 'D'}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-900">{profile?.full_name || 'Driver'}</div>
+                    <div className="text-xs text-emerald-600 font-medium capitalize">
+                      {driverData?.vehicle_type || 'Boda'} Driver
+                    </div>
                   </div>
                 </div>
+                <button 
+                  onClick={() => setIsEditingProfile(!isEditingProfile)}
+                  className="text-emerald-600 text-sm font-bold hover:underline"
+                >
+                  {isEditingProfile ? 'Cancel' : 'Edit'}
+                </button>
               </div>
+              
+              {/* Editable Form */}
+              {isEditingProfile && (
+                <div className="space-y-3 pt-3 border-t border-emerald-200">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
+                    <input 
+                      type="text"
+                      value={profileForm.full_name}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, full_name: e.target.value }))}
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Phone Number</label>
+                    <input 
+                      type="tel"
+                      value={profileForm.phone}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="+254 7XX XXX XXX"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Vehicle Type</label>
+                    <select 
+                      value={profileForm.vehicle_type}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, vehicle_type: e.target.value }))}
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    >
+                      <option value="boda">Boda (Motorcycle)</option>
+                      <option value="tuktuk">Tuktuk (Auto-rickshaw)</option>
+                      <option value="taxi">Taxi (Car)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Plate Number</label>
+                    <input 
+                      type="text"
+                      value={profileForm.plate_number}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, plate_number: e.target.value.toUpperCase() }))}
+                      placeholder="KXX 123X"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 uppercase focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleSaveProfile}
+                    disabled={isSavingProfile}
+                    className="w-full mt-2 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50"
+                  >
+                    {isSavingProfile ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              )}
+              
+              {/* Display View */}
+              {!isEditingProfile && (
+                <div className="text-sm text-slate-600 space-y-1">
+                  <div><span className="text-slate-400">Phone:</span> {profile?.phone || 'Not set'}</div>
+                  <div><span className="text-slate-400">Plate:</span> {driverData?.plate_number || 'Not set'}</div>
+                </div>
+              )}
             </div>
 
             {/* App Settings */}

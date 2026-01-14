@@ -1,7 +1,17 @@
 // src/utils/pricing.js
 
-export const PRICE_PER_KM = 75; // User requirement: 1km = 75 KES
-export const CARPOOL_DISCOUNT = 0.3; // 30% discount if they choose Carpool
+// Per-kilometer rates by vehicle type
+export const RATES_PER_KM = {
+  boda: 50, // Cheapest - motorcycle
+  tuktuk: 65, // Mid-range - auto-rickshaw
+  taxi: 100, // Premium - car
+};
+
+// Legacy single rate (for backward compatibility)
+export const PRICE_PER_KM = 75;
+
+// Carpool discount percentage
+export const CARPOOL_DISCOUNT = 0.3; // 30% off
 
 // Minimum fares by vehicle type
 export const MIN_FARES = {
@@ -33,45 +43,67 @@ function deg2rad(deg) {
   return deg * (Math.PI / 180);
 }
 
-// 2. Calculate Price
+// 2. Calculate Fare with vehicle-specific rates
 export function calculateFare(
   distanceKm,
   vehicleType = "boda",
-  isCarpool = false
+  isCarpool = false,
+  seatsBooked = 1
 ) {
-  let basePrice = distanceKm * PRICE_PER_KM;
+  // Get vehicle-specific rate
+  const ratePerKm = RATES_PER_KM[vehicleType] || RATES_PER_KM.boda;
+  let basePrice = distanceKm * ratePerKm;
 
   // Apply minimum fare based on vehicle type
   const minFare = MIN_FARES[vehicleType] || 50;
   if (basePrice < minFare) basePrice = minFare;
 
-  // Apply Carpool Discount if selected
+  // Apply Carpool Discount if selected (price per seat)
   if (isCarpool) {
-    basePrice = basePrice * (1 - CARPOOL_DISCOUNT);
+    // Carpool fare is per seat, with discount
+    const discountedPrice = basePrice * (1 - CARPOOL_DISCOUNT);
+    return Math.ceil(discountedPrice * seatsBooked);
   }
 
   return Math.ceil(basePrice); // Round up to nearest shilling
 }
 
-// 3. Get fare breakdown
+// 3. Calculate fare per seat (for carpool offers)
+export function calculateFarePerSeat(distanceKm, vehicleType = "taxi") {
+  const ratePerKm = RATES_PER_KM[vehicleType] || RATES_PER_KM.taxi;
+  let basePrice = distanceKm * ratePerKm;
+
+  const minFare = MIN_FARES[vehicleType] || 200;
+  if (basePrice < minFare) basePrice = minFare;
+
+  // Apply carpool discount and divide by typical seats (4)
+  const discountedTotal = basePrice * (1 - CARPOOL_DISCOUNT);
+  return Math.ceil(discountedTotal / 4);
+}
+
+// 4. Get fare breakdown
 export function getFareBreakdown(
   distanceKm,
   vehicleType = "boda",
-  isCarpool = false
+  isCarpool = false,
+  seatsBooked = 1
 ) {
-  const baseFare = distanceKm * PRICE_PER_KM;
+  const ratePerKm = RATES_PER_KM[vehicleType] || RATES_PER_KM.boda;
+  const baseFare = distanceKm * ratePerKm;
   const minFare = MIN_FARES[vehicleType] || 50;
   const appliedBase = Math.max(baseFare, minFare);
   const discount = isCarpool ? appliedBase * CARPOOL_DISCOUNT : 0;
-  const finalFare = Math.ceil(appliedBase - discount);
+  const fareBeforeSeats = Math.ceil(appliedBase - discount);
+  const finalFare = isCarpool ? fareBeforeSeats * seatsBooked : fareBeforeSeats;
 
   return {
     distance: distanceKm,
-    ratePerKm: PRICE_PER_KM,
+    ratePerKm,
     baseFare: Math.ceil(baseFare),
     minFare,
     appliedBase: Math.ceil(appliedBase),
     carpoolDiscount: Math.ceil(discount),
+    seatsBooked,
     finalFare,
   };
 }

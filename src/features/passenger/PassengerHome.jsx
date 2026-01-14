@@ -26,6 +26,7 @@ export default function PassengerHome() {
   const [estimatedFare, setEstimatedFare] = useState(0);
   const [estimatedDistance, setEstimatedDistance] = useState(0);
   const [isCarpool, setIsCarpool] = useState(false);
+  const [seatsBooked, setSeatsBooked] = useState(1);
   const [rideHistory, setRideHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
@@ -186,7 +187,8 @@ export default function PassengerHome() {
         dropoff_location: `POINT(${dropoff.lng} ${dropoff.lat})`,
         fare: calculatedFare,
         status: 'pending',
-        ride_type: isCarpool ? 'shared' : 'solo' // Added ride_type
+        ride_type: isCarpool ? 'shared' : 'solo',
+        seats_booked: isCarpool ? seatsBooked : 1
       }).select().single();
       
       if (error) throw error;
@@ -368,6 +370,7 @@ export default function PassengerHome() {
               estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
               estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
               isCarpool={isCarpool} setIsCarpool={setIsCarpool}
+              seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
               setPickupLocation={setPickupLocation}
             />
           </div>
@@ -573,7 +576,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'selecting') {
-    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool }} />;
+    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked }} />;
   }
 
   if (bookingStep === 'searching') {
@@ -652,7 +655,7 @@ function MobileBottomSheet(props) {
   );
 }
 
-function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool }) {
+function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked }) {
   const [pickupText, setPickupText] = useState(pickupLocation ? 'Current Location' : '');
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
@@ -789,23 +792,59 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
         )}
       </div>
 
-      {/* CARPOOL TOGGLE */}
-      <div className="flex items-center justify-between p-3 bg-purple-50 rounded-xl border border-purple-100">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-            <Users className="w-5 h-5 text-purple-600" />
+      {/* CARPOOL TOGGLE + SEAT SELECTOR */}
+      <div className={`p-4 rounded-xl border transition-all ${isCarpool ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-100'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isCarpool ? 'bg-purple-200' : 'bg-slate-100'}`}>
+              <Users className={`w-5 h-5 ${isCarpool ? 'text-purple-600' : 'text-slate-500'}`} />
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 text-sm">Carpool</div>
+              <div className="text-xs text-purple-600 font-medium">Save 30% • Share your ride</div>
+            </div>
           </div>
-          <div>
-            <div className="font-bold text-slate-800 text-sm">Carpool</div>
-            <div className="text-xs text-purple-600 font-medium">Save 30% on fares</div>
-          </div>
+          <button 
+            onClick={() => {
+              setIsCarpool(!isCarpool);
+              if (!isCarpool) setSeatsBooked(1); // Reset seats when enabling
+            }}
+            className={`relative w-12 h-7 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-300'}`}
+          >
+            <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${isCarpool ? 'left-6' : 'left-1'}`} />
+          </button>
         </div>
-        <button 
-          onClick={() => setIsCarpool(!isCarpool)}
-          className={`relative w-12 h-7 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-200'}`}
-        >
-          <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${isCarpool ? 'left-6' : 'left-1'}`} />
-        </button>
+        
+        {/* Seat Selector - Only show when carpool is enabled */}
+        {isCarpool && (
+          <div className="mt-4 pt-4 border-t border-purple-200">
+            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">How many seats?</label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4].map(num => (
+                <button
+                  key={num}
+                  onClick={() => {
+                    setSeatsBooked(num);
+                    if (estimatedDistance > 0) {
+                      const fare = calculateFare(estimatedDistance, selectedVehicle, true, num);
+                      if (setEstimatedFare) setEstimatedFare(fare);
+                    }
+                  }}
+                  className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                    seatsBooked === num 
+                      ? 'bg-purple-600 text-white shadow-md' 
+                      : 'bg-white text-slate-700 border border-slate-200 hover:border-purple-300'
+                  }`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-purple-600 mt-2 text-center font-medium">
+              {seatsBooked} seat{seatsBooked > 1 ? 's' : ''} × Fare per seat
+            </p>
+          </div>
+        )}
       </div>
 
       {/* VEHICLE SELECTION LIST */}
