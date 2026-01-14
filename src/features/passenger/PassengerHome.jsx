@@ -1,6 +1,6 @@
 // src/features/passenger/PassengerHome.jsx
 import { useState, useEffect } from 'react';
-import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight } from 'lucide-react';
+import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight, Home, Briefcase } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
@@ -39,6 +39,15 @@ export default function PassengerHome() {
   });
   const [availableOffers, setAvailableOffers] = useState([]);
   const [selectedOffer, setSelectedOffer] = useState(null);
+  
+  // Saved Locations State
+  const [savedLocations, setSavedLocations] = useState({
+    home: null,
+    work: null,
+    saved: []
+  });
+  const [showSaveLocationModal, setShowSaveLocationModal] = useState(null); // 'home', 'work', or null
+  const [carpoolSearchQuery, setCarpoolSearchQuery] = useState('');
 
   // Dark mode effect
   useEffect(() => {
@@ -63,6 +72,38 @@ export default function PassengerHome() {
       );
     }
   }, []);
+
+  // Load saved locations from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('jiraniride_saved_locations');
+    if (saved) {
+      try {
+        setSavedLocations(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse saved locations');
+      }
+    }
+  }, []);
+
+  // Save a location (home or work)
+  const saveLocation = (type, location) => {
+    const updated = { ...savedLocations, [type]: location };
+    setSavedLocations(updated);
+    localStorage.setItem('jiraniride_saved_locations', JSON.stringify(updated));
+    setShowSaveLocationModal(null);
+  };
+
+  // Use a saved location
+  const useSavedLocation = (type) => {
+    const location = savedLocations[type];
+    if (location) {
+      setDestination(location.name);
+      setDropoffLocation({ lat: location.lat, lng: location.lng });
+      setBookingStep('selecting');
+    } else {
+      setShowSaveLocationModal(type);
+    }
+  };
 
   // Fetch route when pickup and dropoff are available
   useEffect(() => {
@@ -414,6 +455,26 @@ export default function PassengerHome() {
   return (
     <div className="h-[100dvh] w-full bg-white font-sans text-slate-900 flex flex-col lg:flex-row overflow-hidden">
       
+      {/* Save Location Modal */}
+      {showSaveLocationModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">
+                Set {showSaveLocationModal === 'home' ? 'Home' : 'Work'} Location
+              </h3>
+              <button onClick={() => setShowSaveLocationModal(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <SaveLocationForm 
+              type={showSaveLocationModal}
+              onSave={(location) => saveLocation(showSaveLocationModal, location)}
+              onCancel={() => setShowSaveLocationModal(null)}
+            />
+          </div>
+        </div>
+      )}
       {/* === MOBILE LAYOUT: Split Screen === */}
       <div className="lg:hidden flex flex-col h-full">
         
@@ -476,6 +537,9 @@ export default function PassengerHome() {
               isCarpool={isCarpool} setIsCarpool={setIsCarpool}
               seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
               availableOffers={availableOffers} bookCarpoolOffer={bookCarpoolOffer}
+              savedLocations={savedLocations} useSavedLocation={useSavedLocation}
+              setShowSaveLocationModal={setShowSaveLocationModal}
+              carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
               setPickupLocation={setPickupLocation}
             />
           </div>
@@ -620,7 +684,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -640,25 +704,38 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           </div>
         </div>
         
-        {/* Quick Action Shortcuts - Uber Style */}
+        {/* Quick Action Shortcuts - Functional */}
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-blue-600" />
+          <button 
+            onClick={() => useSavedLocation('home')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-blue-50"
+          >
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${savedLocations?.home ? 'bg-blue-500' : 'bg-blue-100'}`}>
+              <Home className={`w-6 h-6 ${savedLocations?.home ? 'text-white' : 'text-blue-600'}`} />
             </div>
-            <span className="text-sm font-medium text-slate-700">Home</span>
+            <span className="text-sm font-medium text-slate-700">
+              {savedLocations?.home ? savedLocations.home.name?.split(',')[0] : 'Set Home'}
+            </span>
           </button>
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
-            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-purple-600" />
+          <button 
+            onClick={() => useSavedLocation('work')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-purple-50"
+          >
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${savedLocations?.work ? 'bg-purple-500' : 'bg-purple-100'}`}>
+              <Briefcase className={`w-6 h-6 ${savedLocations?.work ? 'text-white' : 'text-purple-600'}`} />
             </div>
-            <span className="text-sm font-medium text-slate-700">Work</span>
+            <span className="text-sm font-medium text-slate-700">
+              {savedLocations?.work ? savedLocations.work.name?.split(',')[0] : 'Set Work'}
+            </span>
           </button>
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
+          <button 
+            onClick={() => setBookingStep('selecting')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-emerald-50"
+          >
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Star className="w-6 h-6 text-emerald-600" />
             </div>
-            <span className="text-sm font-medium text-slate-700">Saved</span>
+            <span className="text-sm font-medium text-slate-700">New Trip</span>
           </button>
         </div>
         
@@ -677,46 +754,75 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           </div>
         </div>
 
-        {/* Available Carpool Offers */}
-        {availableOffers && availableOffers.length > 0 && (
-          <div className="mt-6">
-            <div className="flex items-center gap-2 mb-3">
+        {/* Carpool Offers Section - Always Visible */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-purple-600" />
-              <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wide">Scheduled Carpools</h4>
+              <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wide">Available Carpools</h4>
             </div>
-            <div className="space-y-2">
-              {availableOffers.slice(0, 3).map(offer => (
-                <button
-                  key={offer.id}
-                  onClick={() => {
-                    setBookingStep('selecting');
-                    setIsCarpool(true);
-                  }}
-                  className="w-full flex items-center gap-4 p-4 bg-purple-50 rounded-xl hover:bg-purple-100 transition text-left border border-purple-100"
-                >
-                  <div className="w-10 h-10 bg-purple-200 rounded-full flex items-center justify-center">
-                    <Car className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">
-                      {offer.pickup_name} → {offer.dropoff_name}
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      {new Date(offer.departure_time).toLocaleString([], {
-                        weekday: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })} • {offer.available_seats} seats • KES {offer.fare_per_seat}/seat
-                    </div>
-                  </div>
-                  <div className="text-emerald-600 font-bold text-sm">
-                    Join
-                  </div>
-                </button>
-              ))}
-            </div>
+            <span className="text-xs text-slate-400">{availableOffers?.length || 0} rides</span>
           </div>
-        )}
+          
+          {/* Search Box */}
+          <div className="mb-3">
+            <input
+              type="text"
+              value={carpoolSearchQuery}
+              onChange={(e) => setCarpoolSearchQuery(e.target.value)}
+              placeholder="Search by destination..."
+              className="w-full p-3 bg-purple-50 border border-purple-100 rounded-xl text-sm placeholder:text-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+          </div>
+          
+          {/* Offers List */}
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {availableOffers && availableOffers.length > 0 ? (
+              availableOffers
+                .filter(offer => 
+                  !carpoolSearchQuery || 
+                  offer.pickup_name?.toLowerCase().includes(carpoolSearchQuery.toLowerCase()) ||
+                  offer.dropoff_name?.toLowerCase().includes(carpoolSearchQuery.toLowerCase())
+                )
+                .map(offer => (
+                  <button
+                    key={offer.id}
+                    onClick={() => {
+                      setDestination(offer.dropoff_name);
+                      setBookingStep('selecting');
+                      setIsCarpool(true);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 bg-purple-50 rounded-xl hover:bg-purple-100 transition text-left border border-purple-100"
+                  >
+                    <div className="w-10 h-10 bg-purple-200 rounded-full flex items-center justify-center">
+                      <Car className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-slate-900 truncate">
+                        {offer.pickup_name} → {offer.dropoff_name}
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {new Date(offer.departure_time).toLocaleString([], {
+                          weekday: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })} • {offer.available_seats} seats • KES {offer.fare_per_seat}/seat
+                      </div>
+                    </div>
+                    <div className="text-emerald-600 font-bold text-sm">
+                      Join
+                    </div>
+                  </button>
+                ))
+            ) : (
+              <div className="p-6 bg-purple-50 rounded-xl text-center">
+                <Users className="w-8 h-8 text-purple-300 mx-auto mb-2" />
+                <div className="text-slate-600 font-medium">No carpools available</div>
+                <div className="text-sm text-slate-400">Check back later or request your own ride</div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
@@ -1314,6 +1420,81 @@ function RewardItem({ title, points, available }) {
     <div className={`flex items-center justify-between p-4 rounded-xl ${available ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50'}`}>
       <div className="flex items-center gap-3"><Gift className={`w-5 h-5 ${available ? 'text-emerald-600' : 'text-slate-400'}`} /><span className={`font-medium ${available ? 'text-slate-900' : 'text-slate-500'}`}>{title}</span></div>
       <div className="text-right"><span className={`text-sm font-bold ${available ? 'text-emerald-600' : 'text-slate-400'}`}>{points} pts</span>{available && <button className="block text-xs text-emerald-600 font-medium mt-0.5">Redeem →</button>}</div>
+    </div>
+  );
+}
+
+// SaveLocationForm Component - For setting home/work locations
+function SaveLocationForm({ type, onSave, onCancel }) {
+  const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    if (searchText.length < 3) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const results = await searchLocation(searchText);
+      setSearchResults(results);
+      setIsSearching(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs font-bold text-slate-500 uppercase block mb-2">
+          Search for {type === 'home' ? 'home' : 'work'} address
+        </label>
+        <input
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder={`Enter your ${type} address...`}
+          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          autoFocus
+        />
+      </div>
+
+      {isSearching && (
+        <div className="text-center py-4">
+          <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" />
+        </div>
+      )}
+
+      {searchResults.length > 0 && (
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {searchResults.map((result, idx) => (
+            <button
+              key={idx}
+              onClick={() => onSave({
+                name: result.full_name,
+                lat: result.lat,
+                lng: result.lng
+              })}
+              className="w-full p-3 bg-slate-50 hover:bg-emerald-50 rounded-xl text-left transition border border-transparent hover:border-emerald-200"
+            >
+              <div className="font-medium text-slate-900">{result.name}</div>
+              <div className="text-xs text-slate-500 truncate">{result.full_name}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
