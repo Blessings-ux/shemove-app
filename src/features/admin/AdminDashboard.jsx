@@ -50,7 +50,8 @@ export default function AdminDashboard() {
         { data: passengers },
         { data: rides },
       ] = await Promise.all([
-        supabase.from('drivers').select('*, profiles(full_name, phone)'),
+        // Use explicit relationship: drivers.id -> profiles.id (not owner_id)
+        supabase.from('drivers').select('*, profiles!drivers_id_fkey(full_name, phone)'),
         supabase.from('profiles').select('*').eq('role', 'passenger'),
         supabase.from('rides').select('*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name)').order('created_at', { ascending: false }).limit(50),
       ]);
@@ -163,6 +164,40 @@ export default function AdminDashboard() {
       }
     } catch (error) {
       console.error('Error rejecting driver:', error);
+    }
+  };
+
+  const deleteUser = async (userId, type) => {
+    if (!window.confirm(`Are you sure you want to delete this ${type}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      // Delete from profiles table - this will cascade to other tables if migration is run
+      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      if (type === 'driver') {
+        setAllDrivers(prev => prev.filter(d => d.id !== userId));
+        setStats(prev => ({
+          ...prev,
+          activeDrivers: prev.activeDrivers - (allDrivers.find(d => d.id === userId)?.is_online ? 1 : 0),
+          offlineDrivers: prev.offlineDrivers - (allDrivers.find(d => d.id === userId)?.is_online ? 0 : 1)
+        }));
+      } else {
+        setAllPassengers(prev => prev.filter(p => p.id !== userId));
+        setStats(prev => ({ ...prev, totalPassengers: prev.totalPassengers - 1 }));
+      }
+      
+      alert(`${type === 'driver' ? 'Driver' : 'Passenger'} deleted successfully.`);
+      
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      alert(`Failed to delete user: ${error.message} \n\nMake sure you have run the database migration to enable cascade deleting.`);
     }
   };
 
@@ -452,6 +487,15 @@ export default function AdminDashboard() {
                             {driver.is_online ? 'Online' : 'Offline'}
                           </span>
                         </td>
+                        <td className="px-4 lg:px-6 py-4 text-right">
+                          <button 
+                            onClick={() => deleteUser(driver.id, 'driver')}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                            title="Delete Driver"
+                          >
+                            <UserX className="w-5 h-5" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {filteredDrivers.length === 0 && (
@@ -486,6 +530,15 @@ export default function AdminDashboard() {
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{passenger.phone || '-'}</td>
                         <td className="px-4 lg:px-6 py-4 text-emerald-600 font-bold">{passenger.loyalty_points || 0}</td>
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{new Date(passenger.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 lg:px-6 py-4 text-right">
+                          <button 
+                            onClick={() => deleteUser(passenger.id, 'passenger')}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                            title="Delete User"
+                          >
+                            <UserX className="w-5 h-5" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {filteredPassengers.length === 0 && (
