@@ -37,6 +37,8 @@ export default function PassengerHome() {
     darkMode: false,
     language: 'English'
   });
+  const [availableOffers, setAvailableOffers] = useState([]);
+  const [selectedOffer, setSelectedOffer] = useState(null);
 
   // Dark mode effect
   useEffect(() => {
@@ -153,6 +155,109 @@ export default function PassengerHome() {
     const minFare = MIN_FARES[vehicleType] || 50;
     const calculatedFare = Math.round(distanceKm * RATE_PER_KM);
     return Math.max(calculatedFare, minFare);
+  };
+
+  // Fetch available carpool offers
+  const fetchCarpoolOffers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('carpool_offers')
+        .select('*, driver:profiles!carpool_offers_driver_id_fkey(full_name)')
+        .eq('status', 'open')
+        .gt('available_seats', 0)
+        .gt('departure_time', new Date().toISOString())
+        .order('departure_time', { ascending: true })
+        .limit(10);
+
+      if (!error && data) {
+        setAvailableOffers(data);
+      }
+    } catch (error) {
+      console.error('Error fetching carpool offers:', error);
+    }
+  };
+
+  // Subscribe to real-time carpool offer updates
+  useEffect(() => {
+    if (isCarpool) {
+      fetchCarpoolOffers();
+
+      const channel = supabase
+        .channel('carpool-offers-updates')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'carpool_offers',
+          filter: 'status=eq.open'
+        }, (payload) => {
+          console.log('Carpool offer update:', payload);
+          if (payload.eventType === 'UPDATE') {
+            setAvailableOffers(prev => 
+              prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o)
+                  .filter(o => o.available_seats > 0)
+            );
+          } else if (payload.eventType === 'INSERT') {
+            fetchCarpoolOffers(); // Refetch to include driver info
+          } else if (payload.eventType === 'DELETE') {
+            setAvailableOffers(prev => prev.filter(o => o.id !== payload.old.id));
+          }
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isCarpool]);
+
+  // Book a carpool offer
+  const bookCarpoolOffer = async (offer) => {
+    if (!user || seatsBooked > offer.available_seats) {
+      alert('Not enough seats available');
+      return;
+    }
+
+    setIsRequestingRide(true);
+    setBookingStep('searching');
+
+    try {
+      // Create ride linked to the offer
+      const { data: ride, error: rideError } = await supabase.from('rides').insert({
+        passenger_id: user.id,
+        driver_id: offer.driver_id,
+        pickup_location: `POINT(36.8 -1.3)`, // Would use offer location
+        dropoff_location: `POINT(36.9 -1.2)`,
+        fare: offer.fare_per_seat * seatsBooked,
+        status: 'accepted',
+        ride_type: 'shared',
+        seats_booked: seatsBooked,
+        carpool_offer_id: offer.id
+      }).select().single();
+
+      if (rideError) throw rideError;
+
+      // Decrement available seats
+      const newAvailable = offer.available_seats - seatsBooked;
+      const { error: offerError } = await supabase
+        .from('carpool_offers')
+        .update({ 
+          available_seats: newAvailable,
+          status: newAvailable <= 0 ? 'full' : 'open'
+        })
+        .eq('id', offer.id);
+
+      if (offerError) throw offerError;
+
+      setCurrentRide(ride);
+      setBookingStep('matched');
+      console.log('Carpool booked!', ride);
+    } catch (error) {
+      console.error('Error booking carpool:', error);
+      alert('Failed to book carpool. Please try again.');
+      setBookingStep('selecting');
+    } finally {
+      setIsRequestingRide(false);
+    }
   };
 
   const handleRequestRide = async () => {
@@ -371,6 +476,7 @@ export default function PassengerHome() {
               estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
               isCarpool={isCarpool} setIsCarpool={setIsCarpool}
               seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
+              availableOffers={availableOffers} bookCarpoolOffer={bookCarpoolOffer}
               setPickupLocation={setPickupLocation}
             />
           </div>
@@ -515,7 +621,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -576,7 +682,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'selecting') {
-    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked }} />;
+    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }} />;
   }
 
   if (bookingStep === 'searching') {
@@ -655,7 +761,7 @@ function MobileBottomSheet(props) {
   );
 }
 
-function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked }) {
+function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }) {
   const [pickupText, setPickupText] = useState(pickupLocation ? 'Current Location' : '');
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
@@ -843,6 +949,42 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
             <p className="text-xs text-purple-600 mt-2 text-center font-medium">
               {seatsBooked} seat{seatsBooked > 1 ? 's' : ''} × Fare per seat
             </p>
+          </div>
+        )}
+
+        {/* Available Carpool Offers - Show when carpool is enabled */}
+        {isCarpool && availableOffers && availableOffers.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-purple-200">
+            <label className="text-xs font-bold text-purple-700 uppercase mb-2 block">Available Rides</label>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {availableOffers.map(offer => (
+                <button
+                  key={offer.id}
+                  onClick={() => bookCarpoolOffer(offer)}
+                  disabled={seatsBooked > offer.available_seats}
+                  className={`w-full p-3 rounded-xl border text-left transition ${
+                    seatsBooked <= offer.available_seats 
+                      ? 'bg-white hover:bg-purple-50 border-purple-200' 
+                      : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">
+                        {offer.pickup_name} → {offer.dropoff_name}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {offer.driver?.full_name || 'Driver'} • {new Date(offer.departure_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-emerald-600">KES {offer.fare_per_seat * seatsBooked}</div>
+                      <div className="text-xs text-purple-600">{offer.available_seats} seats left</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

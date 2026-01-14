@@ -36,6 +36,18 @@ export default function DriverDashboard() {
     plate_number: ''
   });
 
+  // Carpool Offer State
+  const [showCarpoolForm, setShowCarpoolForm] = useState(false);
+  const [isCreatingOffer, setIsCreatingOffer] = useState(false);
+  const [carpoolOffer, setCarpoolOffer] = useState({
+    pickup_name: '',
+    dropoff_name: '',
+    departure_time: '',
+    total_seats: 4,
+    fare_per_seat: 100
+  });
+  const [activeOffers, setActiveOffers] = useState([]);
+
   // Dark mode effect
   useEffect(() => {
     if (appSettings.darkMode) {
@@ -397,10 +409,124 @@ export default function DriverDashboard() {
     }
   };
 
+  // Fetch driver's active carpool offers
+  const fetchActiveOffers = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('carpool_offers')
+        .select('*')
+        .eq('driver_id', user.id)
+        .in('status', ['open', 'full'])
+        .order('departure_time', { ascending: true });
+      
+      if (!error && data) {
+        setActiveOffers(data);
+      }
+    } catch (error) {
+      console.error('Error fetching offers:', error);
+    }
+  };
+
+  // Create a new carpool offer
+  const handleCreateOffer = async () => {
+    if (!carpoolOffer.pickup_name || !carpoolOffer.dropoff_name || !carpoolOffer.departure_time) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setIsCreatingOffer(true);
+    try {
+      const { data, error } = await supabase
+        .from('carpool_offers')
+        .insert({
+          driver_id: user.id,
+          pickup_name: carpoolOffer.pickup_name,
+          dropoff_name: carpoolOffer.dropoff_name,
+          pickup_location: `POINT(36.8 -1.3)`, // Default Nairobi - would be geocoded
+          dropoff_location: `POINT(36.9 -1.2)`, // Default - would be geocoded
+          departure_time: new Date(carpoolOffer.departure_time).toISOString(),
+          total_seats: carpoolOffer.total_seats,
+          available_seats: carpoolOffer.total_seats,
+          fare_per_seat: carpoolOffer.fare_per_seat,
+          vehicle_type: driverData?.vehicle_type || 'taxi',
+          status: 'open'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setActiveOffers(prev => [...prev, data]);
+      setShowCarpoolForm(false);
+      setCarpoolOffer({
+        pickup_name: '',
+        dropoff_name: '',
+        departure_time: '',
+        total_seats: 4,
+        fare_per_seat: 100
+      });
+      console.log('Carpool offer created:', data);
+    } catch (error) {
+      console.error('Error creating offer:', error);
+      alert('Failed to create offer. Please try again.');
+    } finally {
+      setIsCreatingOffer(false);
+    }
+  };
+
+  // Cancel a carpool offer
+  const cancelOffer = async (offerId) => {
+    try {
+      const { error } = await supabase
+        .from('carpool_offers')
+        .update({ status: 'cancelled' })
+        .eq('id', offerId)
+        .eq('driver_id', user.id);
+
+      if (!error) {
+        setActiveOffers(prev => prev.filter(o => o.id !== offerId));
+      }
+    } catch (error) {
+      console.error('Error cancelling offer:', error);
+    }
+  };
+
+  // Subscribe to real-time updates for driver's offers
+  useEffect(() => {
+    if (!user) return;
+
+    fetchActiveOffers();
+
+    const channel = supabase
+      .channel(`driver-offers-${user.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'carpool_offers',
+        filter: `driver_id=eq.${user.id}`
+      }, (payload) => {
+        console.log('Offer update:', payload);
+        if (payload.eventType === 'UPDATE') {
+          setActiveOffers(prev => 
+            prev.map(o => o.id === payload.new.id ? payload.new : o)
+          );
+        } else if (payload.eventType === 'DELETE') {
+          setActiveOffers(prev => prev.filter(o => o.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   const refreshData = () => {
     fetchDriverData();
     fetchTodayEarnings();
     fetchActiveRides();
+    fetchActiveOffers();
   };
 
   return (
@@ -631,6 +757,125 @@ export default function DriverDashboard() {
                 <div className="text-sm text-slate-600 space-y-1">
                   <div><span className="text-slate-400">Phone:</span> {profile?.phone || 'Not set'}</div>
                   <div><span className="text-slate-400">Plate:</span> {driverData?.plate_number || 'Not set'}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Carpool Offers Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Carpool Offers</h3>
+                <button 
+                  onClick={() => setShowCarpoolForm(!showCarpoolForm)}
+                  className="text-purple-600 text-sm font-bold hover:underline"
+                >
+                  {showCarpoolForm ? 'Cancel' : '+ New Offer'}
+                </button>
+              </div>
+
+              {/* Create Offer Form */}
+              {showCarpoolForm && (
+                <div className="p-4 bg-purple-50 rounded-xl border border-purple-200 space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">From (Pickup)</label>
+                    <input 
+                      type="text"
+                      value={carpoolOffer.pickup_name}
+                      onChange={(e) => setCarpoolOffer(prev => ({ ...prev, pickup_name: e.target.value }))}
+                      placeholder="e.g. Westlands"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">To (Dropoff)</label>
+                    <input 
+                      type="text"
+                      value={carpoolOffer.dropoff_name}
+                      onChange={(e) => setCarpoolOffer(prev => ({ ...prev, dropoff_name: e.target.value }))}
+                      placeholder="e.g. CBD"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Departure Time</label>
+                    <input 
+                      type="datetime-local"
+                      value={carpoolOffer.departure_time}
+                      onChange={(e) => setCarpoolOffer(prev => ({ ...prev, departure_time: e.target.value }))}
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Seats</label>
+                      <select 
+                        value={carpoolOffer.total_seats}
+                        onChange={(e) => setCarpoolOffer(prev => ({ ...prev, total_seats: parseInt(e.target.value) }))}
+                        className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
+                      >
+                        {[1, 2, 3, 4, 5, 6].map(n => (
+                          <option key={n} value={n}>{n} seat{n > 1 ? 's' : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Fare/Seat (KES)</label>
+                      <input 
+                        type="number"
+                        value={carpoolOffer.fare_per_seat}
+                        onChange={(e) => setCarpoolOffer(prev => ({ ...prev, fare_per_seat: parseInt(e.target.value) || 0 }))}
+                        className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleCreateOffer}
+                    disabled={isCreatingOffer}
+                    className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    {isCreatingOffer ? 'Creating...' : 'Create Offer'}
+                  </button>
+                </div>
+              )}
+
+              {/* Active Offers List */}
+              {activeOffers.length > 0 ? (
+                <div className="space-y-2">
+                  {activeOffers.map(offer => (
+                    <div key={offer.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="font-bold text-slate-800">{offer.pickup_name} → {offer.dropoff_name}</div>
+                          <div className="text-xs text-slate-500">
+                            {new Date(offer.departure_time).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className={`px-2 py-1 rounded-full text-xs font-bold ${
+                          offer.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {offer.status === 'open' ? 'Open' : 'Full'}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm">
+                          <span className="font-bold text-purple-600">{offer.available_seats}/{offer.total_seats}</span>
+                          <span className="text-slate-500"> seats • </span>
+                          <span className="font-bold text-emerald-600">KES {offer.fare_per_seat}</span>
+                          <span className="text-slate-500">/seat</span>
+                        </div>
+                        <button 
+                          onClick={() => cancelOffer(offer.id)}
+                          className="text-red-500 text-xs font-bold hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 rounded-xl text-center text-slate-400 text-sm">
+                  No active carpool offers. Create one to start pooling!
                 </div>
               )}
             </div>
