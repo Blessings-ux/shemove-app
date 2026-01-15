@@ -48,6 +48,10 @@ export default function PassengerHome() {
   });
   const [showSaveLocationModal, setShowSaveLocationModal] = useState(null); // 'home', 'work', or null
   const [carpoolSearchQuery, setCarpoolSearchQuery] = useState('');
+  
+  // Notifications State
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Dark mode effect
   useEffect(() => {
@@ -198,9 +202,10 @@ export default function PassengerHome() {
     return Math.max(calculatedFare, minFare);
   };
 
-  // Fetch available carpool offers
+  // Fetch available carpool offers from database
   const fetchCarpoolOffers = async () => {
     try {
+      console.log('Fetching carpool offers from database...');
       const { data, error } = await supabase
         .from('carpool_offers')
         .select('*, driver:profiles!carpool_offers_driver_id_fkey(full_name)')
@@ -210,11 +215,17 @@ export default function PassengerHome() {
         .order('departure_time', { ascending: true })
         .limit(10);
 
-      if (!error && data) {
-        setAvailableOffers(data);
+      if (error) {
+        console.error('Error fetching carpool offers:', error);
+        setAvailableOffers([]);
+        return;
       }
+
+      console.log('Carpool offers from database:', data);
+      setAvailableOffers(data || []);
     } catch (error) {
       console.error('Error fetching carpool offers:', error);
+      setAvailableOffers([]);
     }
   };
 
@@ -249,6 +260,39 @@ export default function PassengerHome() {
       supabase.removeChannel(channel);
     };
   }, []); // Run once on mount
+
+  // Fetch and subscribe to notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchNotifications = async () => {
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (data) setNotifications(data);
+    };
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel(`passenger-notifications-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        console.log('New notification:', payload.new);
+        setNotifications(prev => [payload.new, ...prev]);
+        setShowNotifications(true);
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
 
   // Book a carpool offer - INSTANT connection, no confirmation needed
   const bookCarpoolOffer = async (offer) => {
@@ -314,7 +358,18 @@ export default function PassengerHome() {
         departureTime: offer.departure_time
       });
 
+      // Notify driver about the new passenger (via realtime update on rides table)
+      // The driver dashboard already subscribes to rides, so this will show up
       console.log('Carpool booked instantly! Connected to driver:', driverData?.full_name);
+      
+      // Also create a notification record (driver will see this via subscription)
+      await supabase.from('notifications').insert({
+        user_id: offer.driver_id,
+        type: 'carpool_booking',
+        title: 'New Carpool Passenger!',
+        message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
+        data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
+      }).catch(err => console.log('Notification insert skipped:', err.message));
     } catch (error) {
       console.error('Error booking carpool:', error);
       alert('Failed to book carpool. Please try again.');
@@ -522,14 +577,56 @@ export default function PassengerHome() {
               </div>
             </div>
 
-            {/* Settings Button */}
-            <button 
-              onClick={() => openPanel('settings')}
-              className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
+            {/* Notification & Settings Buttons */}
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700 relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+              <button 
+                onClick={() => openPanel('settings')}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+            </div>
           </div>
+
+          {/* Notification Dropdown */}
+          {showNotifications && (
+            <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
+              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+                <h4 className="font-bold text-slate-800">Notifications</h4>
+                <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
+                  <X className="w-4 h-4 text-slate-500" />
+                </button>
+              </div>
+              {notifications.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {notifications.map(n => (
+                    <div key={n.id} className={`p-3 ${!n.read ? 'bg-emerald-50' : ''}`}>
+                      <div className="font-medium text-slate-800 text-sm">{n.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">{n.message}</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {new Date(n.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-slate-500 text-sm">
+                  No notifications yet
+                </div>
+              )}
+            </div>
+          )}
         </div>
         
         {/* TOP HALF: Map (with padding for fixed header) */}
@@ -640,6 +737,13 @@ export default function PassengerHome() {
                 setDropoffLocation={setDropoffLocation}
                 estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
                 estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
+                isCarpool={isCarpool} setIsCarpool={setIsCarpool}
+                seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
+                availableOffers={availableOffers} bookCarpoolOffer={bookCarpoolOffer}
+                savedLocations={savedLocations} useSavedLocation={useSavedLocation}
+                setShowSaveLocationModal={setShowSaveLocationModal}
+                carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
+                setPickupLocation={setPickupLocation}
               />
             )}
           </div>
@@ -800,7 +904,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           </div>
           
           {/* Offers List */}
-          <div className="space-y-2 max-h-60 overflow-y-auto">
+          <div className="space-y-3 max-h-80 overflow-y-auto">
             {availableOffers && availableOffers.length > 0 ? (
               availableOffers
                 .filter(offer => 
@@ -809,34 +913,99 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
                   offer.dropoff_name?.toLowerCase().includes(carpoolSearchQuery.toLowerCase())
                 )
                 .map(offer => (
-                  <button
+                  <div
                     key={offer.id}
-                    onClick={() => {
-                      setDestination(offer.dropoff_name);
-                      setBookingStep('selecting');
-                      setIsCarpool(true);
-                    }}
-                    className="w-full flex items-center gap-4 p-4 bg-purple-50 rounded-xl hover:bg-purple-100 transition text-left border border-purple-100"
+                    className="p-4 bg-white rounded-xl border border-purple-200 shadow-sm"
                   >
-                    <div className="w-10 h-10 bg-purple-200 rounded-full flex items-center justify-center">
-                      <Car className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-900 truncate">
-                        {offer.pickup_name} → {offer.dropoff_name}
+                    {/* Route Info */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        {offer.vehicle_type === 'boda' && <Bike className="w-5 h-5 text-purple-600" />}
+                        {offer.vehicle_type === 'tuktuk' && <Car className="w-5 h-5 text-purple-600" />}
+                        {(!offer.vehicle_type || offer.vehicle_type === 'taxi') && <Car className="w-5 h-5 text-purple-600" />}
                       </div>
-                      <div className="text-sm text-slate-500">
-                        {new Date(offer.departure_time).toLocaleString([], {
-                          weekday: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })} • {offer.available_seats} seats • KES {offer.fare_per_seat}/seat
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-slate-900">
+                          {offer.pickup_name} → {offer.dropoff_name}
+                        </div>
+                        <div className="text-sm text-slate-500">
+                          {new Date(offer.departure_time).toLocaleString([], {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-emerald-600 font-bold text-sm">
-                      Join
+
+                    {/* Driver Info */}
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl mb-3">
+                      <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                        {offer.driver?.full_name?.charAt(0) || 'D'}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-800">{offer.driver?.full_name || 'Driver'}</div>
+                        <div className="text-xs text-slate-500 capitalize">{offer.vehicle_type || 'Taxi'} Driver</div>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Show driver profile modal (future)
+                          alert(`Driver: ${offer.driver?.full_name || 'Driver'}\nVehicle: ${offer.vehicle_type || 'Taxi'}`);
+                        }}
+                        className="px-3 py-1 text-xs font-bold text-purple-600 bg-purple-50 rounded-full hover:bg-purple-100"
+                      >
+                        View Profile
+                      </button>
                     </div>
-                  </button>
+
+                    {/* Seats & Fare */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">{offer.available_seats}</div>
+                          <div className="text-xs text-slate-500">Seats Left</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-emerald-600">KES {offer.fare_per_seat}</div>
+                          <div className="text-xs text-slate-500">Per Seat</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-slate-500">Total for {seatsBooked} seat{seatsBooked > 1 ? 's' : ''}</div>
+                        <div className="text-xl font-bold text-slate-900">KES {offer.fare_per_seat * seatsBooked}</div>
+                      </div>
+                    </div>
+
+                    {/* Seat Selector */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs text-slate-500 font-medium">Seats:</span>
+                      {[1, 2, 3, 4].filter(n => n <= offer.available_seats).map(num => (
+                        <button
+                          key={num}
+                          onClick={() => setSeatsBooked(num)}
+                          className={`w-8 h-8 rounded-full font-bold text-sm transition ${
+                            seatsBooked === num 
+                              ? 'bg-purple-600 text-white' 
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Join Button */}
+                    <button
+                      onClick={() => bookCarpoolOffer(offer)}
+                      disabled={seatsBooked > offer.available_seats}
+                      className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Join This Ride
+                    </button>
+                  </div>
                 ))
             ) : (
               <div className="p-6 bg-purple-50 rounded-xl text-center">
@@ -1018,6 +1187,50 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
              />
            </div>
            {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />}
+           <button
+             type="button"
+             onClick={async () => {
+               if (navigator.geolocation) {
+                 navigator.geolocation.getCurrentPosition(
+                   async (position) => {
+                     const { latitude, longitude } = position.coords;
+                     setPickupLocation({ lat: latitude, lng: longitude });
+                     try {
+                       const address = await reverseGeocode(latitude, longitude);
+                       setPickupText(address || 'Current Location');
+                     } catch (err) {
+                       setPickupText('Current Location');
+                     }
+                   },
+                   (err) => {
+                     console.error('Geolocation error:', err);
+                     // Fallback to default Nairobi location
+                     const defaultLocation = { lat: -1.2921, lng: 36.8219 };
+                     setPickupLocation(defaultLocation);
+                     setPickupText('Nairobi CBD (Default)');
+                     
+                     // Show specific error message
+                     if (err.code === 1) {
+                       console.log('Permission denied - using default location');
+                     } else if (err.code === 2) {
+                       console.log('Position unavailable - using default location');
+                     } else if (err.code === 3) {
+                       console.log('Timeout - using default location');
+                     }
+                   },
+                   { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                 );
+               } else {
+                 // Fallback for browsers without geolocation
+                 const defaultLocation = { lat: -1.2921, lng: 36.8219 };
+                 setPickupLocation(defaultLocation);
+                 setPickupText('Nairobi CBD (Default)');
+               }
+             }}
+             className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition whitespace-nowrap flex items-center gap-1"
+           >
+             📍 My Location
+           </button>
         </div>
 
         {/* Destination */}

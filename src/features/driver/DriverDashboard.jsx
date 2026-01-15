@@ -5,6 +5,7 @@ import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, St
 import { supabase } from '../../services/supabase';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useAuthStore } from '../../store/authStore';
+import { reverseGeocode } from '../../services/geocoding';
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
@@ -47,6 +48,8 @@ export default function DriverDashboard() {
     fare_per_seat: 100
   });
   const [activeOffers, setActiveOffers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Dark mode effect
   useEffect(() => {
@@ -452,27 +455,38 @@ export default function DriverDashboard() {
     }
 
     setIsCreatingOffer(true);
+    console.log('Creating carpool offer...', carpoolOffer);
+    
     try {
+      // Use Supabase RPC or direct insert - geography columns need proper format
+      const offerData = {
+        driver_id: user.id,
+        pickup_name: carpoolOffer.pickup_name,
+        dropoff_name: carpoolOffer.dropoff_name,
+        departure_time: new Date(carpoolOffer.departure_time).toISOString(),
+        total_seats: parseInt(carpoolOffer.total_seats),
+        available_seats: parseInt(carpoolOffer.total_seats),
+        fare_per_seat: parseFloat(carpoolOffer.fare_per_seat),
+        vehicle_type: driverData?.vehicle_type || 'taxi',
+        status: 'open'
+      };
+
+      console.log('Offer data to insert:', offerData);
+
+      // Insert without geography columns first (they're optional in the schema)
       const { data, error } = await supabase
         .from('carpool_offers')
-        .insert({
-          driver_id: user.id,
-          pickup_name: carpoolOffer.pickup_name,
-          dropoff_name: carpoolOffer.dropoff_name,
-          pickup_location: `POINT(36.8 -1.3)`, // Default Nairobi - would be geocoded
-          dropoff_location: `POINT(36.9 -1.2)`, // Default - would be geocoded
-          departure_time: new Date(carpoolOffer.departure_time).toISOString(),
-          total_seats: carpoolOffer.total_seats,
-          available_seats: carpoolOffer.total_seats,
-          fare_per_seat: carpoolOffer.fare_per_seat,
-          vehicle_type: driverData?.vehicle_type || 'taxi',
-          status: 'open'
-        })
+        .insert(offerData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        alert(`Failed to create offer: ${error.message}`);
+        return;
+      }
 
+      console.log('Carpool offer created successfully:', data);
       setActiveOffers(prev => [...prev, data]);
       setShowCarpoolForm(false);
       setCarpoolOffer({
@@ -482,10 +496,10 @@ export default function DriverDashboard() {
         total_seats: 4,
         fare_per_seat: 100
       });
-      console.log('Carpool offer created:', data);
+      alert('Carpool offer created successfully!');
     } catch (error) {
       console.error('Error creating offer:', error);
-      alert('Failed to create offer. Please try again.');
+      alert(`Failed to create offer: ${error.message || 'Unknown error'}`);
     } finally {
       setIsCreatingOffer(false);
     }
@@ -538,6 +552,40 @@ export default function DriverDashboard() {
     };
   }, [user]);
 
+  // Fetch and subscribe to notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchNotifications = async () => {
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (data) setNotifications(data);
+    };
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel(`driver-notifications-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        console.log('New notification:', payload.new);
+        setNotifications(prev => [payload.new, ...prev]);
+        // Show notification alert
+        setShowNotifications(true);
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
+
   const refreshData = () => {
     fetchDriverData();
     fetchTodayEarnings();
@@ -577,6 +625,17 @@ export default function DriverDashboard() {
                 className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
               >
                 <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700 relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
               </button>
               <button 
                 onClick={openSettings}
@@ -794,13 +853,45 @@ export default function DriverDashboard() {
                 <div className="p-4 bg-purple-50 rounded-xl border border-purple-200 space-y-3">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">From (Pickup)</label>
-                    <input 
-                      type="text"
-                      value={carpoolOffer.pickup_name}
-                      onChange={(e) => setCarpoolOffer(prev => ({ ...prev, pickup_name: e.target.value }))}
-                      placeholder="e.g. Westlands"
-                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl"
-                    />
+                    <div className="flex gap-2 mt-1">
+                      <input 
+                        type="text"
+                        value={carpoolOffer.pickup_name}
+                        onChange={(e) => setCarpoolOffer(prev => ({ ...prev, pickup_name: e.target.value }))}
+                        placeholder="e.g. Westlands"
+                        className="flex-1 p-3 bg-white border border-slate-200 rounded-xl"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (navigator.geolocation) {
+                            navigator.geolocation.getCurrentPosition(
+                              async (position) => {
+                                const { latitude, longitude } = position.coords;
+                                try {
+                                  const address = await reverseGeocode(latitude, longitude);
+                                  setCarpoolOffer(prev => ({ ...prev, pickup_name: address || 'Current Location' }));
+                                } catch (err) {
+                                  setCarpoolOffer(prev => ({ ...prev, pickup_name: 'Current Location' }));
+                                }
+                              },
+                              (err) => {
+                                console.error('Geolocation error:', err);
+                                // Fallback to default Nairobi location
+                                setCarpoolOffer(prev => ({ ...prev, pickup_name: 'Nairobi CBD (Default)' }));
+                              },
+                              { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                            );
+                          } else {
+                            // Fallback for browsers without geolocation
+                            setCarpoolOffer(prev => ({ ...prev, pickup_name: 'Nairobi CBD (Default)' }));
+                          }
+                        }}
+                        className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition whitespace-nowrap"
+                      >
+                        📍 Use My Location
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">To (Dropoff)</label>

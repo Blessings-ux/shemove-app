@@ -67,3 +67,33 @@ $$;
 -- 5. Allow authenticated users to book (update) carpool offers (decrement seats)
 CREATE POLICY "Authenticated users can book offers" ON public.carpool_offers 
   FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- 6. Create notifications table for driver/passenger alerts
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  type text NOT NULL, -- 'carpool_booking', 'ride_request', 'ride_completed', etc.
+  title text NOT NULL,
+  message text,
+  data jsonb DEFAULT '{}',
+  read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+-- Enable RLS on notifications
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see their own notifications
+CREATE POLICY "Users can view own notifications" ON public.notifications 
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- Authenticated users can create notifications (for cross-user alerts)
+CREATE POLICY "Authenticated users can create notifications" ON public.notifications 
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- Users can update (mark as read) their own notifications
+CREATE POLICY "Users can update own notifications" ON public.notifications 
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- Index for quick lookup
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, created_at DESC);
