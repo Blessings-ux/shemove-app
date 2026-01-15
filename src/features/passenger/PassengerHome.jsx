@@ -280,13 +280,22 @@ export default function PassengerHome() {
     if (!user) return;
 
     const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (data) setNotifications(data);
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        
+        if (error) {
+          console.error('Error fetching notifications:', error);
+          return;
+        }
+        if (data) setNotifications(data);
+      } catch (err) {
+        console.error('Notifications fetch failed:', err);
+      }
     };
 
     fetchNotifications();
@@ -320,18 +329,31 @@ export default function PassengerHome() {
     setBookingStep('matched');
 
     try {
-      // Fetch driver info
-      const { data: driverData } = await supabase
-        .from('profiles')
-        .select('full_name, phone')
-        .eq('id', offer.driver_id)
-        .single();
+      // Fetch driver info - may fail due to RLS, so use fallback
+      let driverData = null;
+      let driverVehicle = null;
+      
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('full_name, phone')
+          .eq('id', offer.driver_id)
+          .single();
+        driverData = data;
+      } catch (err) {
+        console.log('Could not fetch driver profile, using offer data');
+      }
 
-      const { data: driverVehicle } = await supabase
-        .from('drivers')
-        .select('vehicle_type, plate_number')
-        .eq('id', offer.driver_id)
-        .single();
+      try {
+        const { data } = await supabase
+          .from('drivers')
+          .select('vehicle_type, plate_number')
+          .eq('id', offer.driver_id)
+          .single();
+        driverVehicle = data;
+      } catch (err) {
+        console.log('Could not fetch driver vehicle info');
+      }
 
       // Create ride linked to the offer - status is already 'accepted'
       const { data: ride, error: rideError } = await supabase.from('rides').insert({
@@ -377,13 +399,17 @@ export default function PassengerHome() {
       console.log('Carpool booked instantly! Connected to driver:', driverData?.full_name);
       
       // Also create a notification record (driver will see this via subscription)
-      await supabase.from('notifications').insert({
-        user_id: offer.driver_id,
-        type: 'carpool_booking',
-        title: 'New Carpool Passenger!',
-        message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
-        data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
-      }).catch(err => console.log('Notification insert skipped:', err.message));
+      try {
+        await supabase.from('notifications').insert({
+          user_id: offer.driver_id,
+          type: 'carpool_booking',
+          title: 'New Carpool Passenger!',
+          message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
+          data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
+        });
+      } catch (notifErr) {
+        console.log('Notification insert skipped:', notifErr);
+      }
     } catch (error) {
       console.error('Error booking carpool:', error);
       alert('Failed to book carpool. Please try again.');
@@ -618,14 +644,44 @@ export default function PassengerHome() {
             <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
               <div className="p-3 border-b border-slate-100 flex items-center justify-between">
                 <h4 className="font-bold text-slate-800">Notifications</h4>
-                <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
-                  <X className="w-4 h-4 text-slate-500" />
-                </button>
+                <div className="flex gap-2">
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <button 
+                      onClick={async () => {
+                        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+                        if (unreadIds.length > 0) {
+                          await supabase
+                            .from('notifications')
+                            .update({ read: true })
+                            .in('id', unreadIds);
+                          setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                        }
+                      }}
+                      className="text-xs text-emerald-600 font-bold hover:underline"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
+                    <X className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
               </div>
               {notifications.length > 0 ? (
                 <div className="divide-y divide-slate-100">
                   {notifications.map(n => (
-                    <div key={n.id} className={`p-3 ${!n.read ? 'bg-emerald-50' : ''}`}>
+                    <div 
+                      key={n.id} 
+                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-emerald-50' : ''}`}
+                      onClick={async () => {
+                        if (!n.read) {
+                          await supabase.from('notifications').update({ read: true }).eq('id', n.id);
+                          setNotifications(prev => prev.map(notif => 
+                            notif.id === n.id ? { ...notif, read: true } : notif
+                          ));
+                        }
+                      }}
+                    >
                       <div className="font-medium text-slate-800 text-sm">{n.title}</div>
                       <div className="text-xs text-slate-500 mt-1">{n.message}</div>
                       <div className="text-xs text-slate-400 mt-1">

@@ -305,6 +305,21 @@ export default function DriverDashboard() {
         // Add the new ride to the array
         setActiveRides(prev => [...prev, { ...incomingRequest, status: 'accepted' }]);
         setIncomingRequest(null);
+        
+        // Notify passenger their ride was accepted
+        if (incomingRequest.passenger_id) {
+          try {
+            await supabase.from('notifications').insert({
+              user_id: incomingRequest.passenger_id,
+              type: 'ride_accepted',
+              title: 'Driver Found! 🚗',
+              message: `${profile?.full_name || 'A driver'} has accepted your ride request. They're on the way!`,
+              data: { ride_id: incomingRequest.id }
+            });
+          } catch (notifErr) {
+            console.log('Notification skipped:', notifErr);
+          }
+        }
       }
     } catch (error) {
       console.error('Error accepting ride:', error);
@@ -332,17 +347,31 @@ export default function DriverDashboard() {
         // Award loyalty points to passenger (10 points per 100 KES)
         const pointsEarned = Math.floor((rideToComplete.fare || 0) / 10);
         if (pointsEarned > 0 && rideToComplete.passenger_id) {
-          await supabase.rpc('increment_loyalty_points', { 
-            user_id: rideToComplete.passenger_id, 
-            points: pointsEarned 
-          }).catch(err => {
-            // Fallback: direct update if RPC doesn't exist
-            supabase
-              .from('profiles')
-              .update({ loyalty_points: supabase.raw(`loyalty_points + ${pointsEarned}`) })
-              .eq('id', rideToComplete.passenger_id);
-          });
-          console.log(`Awarded ${pointsEarned} loyalty points to passenger`);
+          try {
+            await supabase.rpc('increment_loyalty_points', { 
+              user_id: rideToComplete.passenger_id, 
+              points: pointsEarned 
+            });
+            console.log(`Awarded ${pointsEarned} loyalty points to passenger`);
+          } catch (rpcErr) {
+            // Fallback: RPC doesn't exist, skip loyalty points
+            console.log('Loyalty points RPC not available:', rpcErr);
+          }
+        }
+        
+        // Notify passenger their ride is complete
+        if (rideToComplete.passenger_id) {
+          try {
+            await supabase.from('notifications').insert({
+              user_id: rideToComplete.passenger_id,
+              type: 'ride_completed',
+              title: 'Ride Completed! ✅',
+              message: `Thanks for riding! You earned ${pointsEarned} loyalty points. Total fare: KES ${rideToComplete.fare}`,
+              data: { ride_id: rideId, points: pointsEarned }
+            });
+          } catch (notifErr) {
+            console.log('Notification skipped:', notifErr);
+          }
         }
       }
     } catch (error) {
@@ -557,13 +586,22 @@ export default function DriverDashboard() {
     if (!user) return;
 
     const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (data) setNotifications(data);
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        
+        if (error) {
+          console.error('Error fetching notifications:', error);
+          return;
+        }
+        if (data) setNotifications(data);
+      } catch (err) {
+        console.error('Notifications fetch failed:', err);
+      }
     };
 
     fetchNotifications();
@@ -645,6 +683,65 @@ export default function DriverDashboard() {
               </button>
             </div>
           </div>
+
+          {/* Notification Dropdown */}
+          {showNotifications && (
+            <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
+              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+                <h4 className="font-bold text-slate-800">Notifications</h4>
+                <div className="flex gap-2">
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <button 
+                      onClick={async () => {
+                        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+                        if (unreadIds.length > 0) {
+                          await supabase
+                            .from('notifications')
+                            .update({ read: true })
+                            .in('id', unreadIds);
+                          setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                        }
+                      }}
+                      className="text-xs text-emerald-600 font-bold hover:underline"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
+                    <X className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
+              </div>
+              {notifications.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {notifications.map(n => (
+                    <div 
+                      key={n.id} 
+                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-emerald-50' : ''}`}
+                      onClick={async () => {
+                        if (!n.read) {
+                          await supabase.from('notifications').update({ read: true }).eq('id', n.id);
+                          setNotifications(prev => prev.map(notif => 
+                            notif.id === n.id ? { ...notif, read: true } : notif
+                          ));
+                        }
+                      }}
+                    >
+                      <div className="font-medium text-slate-800 text-sm">{n.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">{n.message}</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {new Date(n.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-slate-500 text-sm">
+                  No notifications yet
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Map Top */}
@@ -1185,10 +1282,20 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                <div className="flex gap-4 relative">
                  <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-slate-200"></div>
                  <div className="w-5 h-5 bg-black rounded-sm z-10 flex-shrink-0"></div>
-                 <div>
+                 <div className="flex-1">
                    <div className="text-lg font-bold text-slate-900 leading-none mb-1">{incomingRequest.passengerName}</div>
-                   <div className="text-slate-400 text-xs uppercase font-bold">Passenger</div>
+                   <div className="text-slate-500 text-sm">{incomingRequest.passengerPhone || 'Phone not available'}</div>
+                   <div className="text-slate-400 text-xs uppercase font-bold mt-1">Passenger</div>
                  </div>
+                 {incomingRequest.passengerPhone && (
+                   <a 
+                     href={`tel:${incomingRequest.passengerPhone}`}
+                     className="flex items-center gap-1 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs hover:bg-emerald-200 transition"
+                   >
+                     <Phone className="w-3.5 h-3.5" />
+                     Call
+                   </a>
+                 )}
                </div>
                
                <div className="flex gap-4 relative">
@@ -1242,20 +1349,27 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
               {/* Passenger Strip */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold">
+                  <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-lg">
                     {ride.passengerName?.charAt(0) || 'P'}
                   </div>
                   <div>
                     <div className="font-bold text-slate-900">{ride.passengerName}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-sm text-slate-600">
+                      {ride.passengerPhone || 'No phone available'}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
                       {ride.ride_type === 'shared' && <span className="text-purple-600 font-bold mr-2">SHARED</span>}
                       {ride.dropoff}
                     </div>
                   </div>
                 </div>
                 {ride.passengerPhone && (
-                  <a href={`tel:${ride.passengerPhone}`} className="p-2 bg-white border border-slate-200 rounded-full text-slate-700 hover:bg-slate-100">
+                  <a 
+                    href={`tel:${ride.passengerPhone}`} 
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm hover:bg-emerald-200 transition"
+                  >
                     <Phone className="w-4 h-4" />
+                    Call
                   </a>
                 )}
               </div>
