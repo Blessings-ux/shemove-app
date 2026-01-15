@@ -206,14 +206,30 @@ export default function PassengerHome() {
   const fetchCarpoolOffers = async () => {
     try {
       console.log('Fetching carpool offers from database...');
-      const { data, error } = await supabase
+      
+      // First try with driver join
+      let { data, error } = await supabase
         .from('carpool_offers')
-        .select('*, driver:profiles!carpool_offers_driver_id_fkey(full_name)')
+        .select('*, driver:profiles(full_name)')
         .eq('status', 'open')
         .gt('available_seats', 0)
-        .gt('departure_time', new Date().toISOString())
         .order('departure_time', { ascending: true })
-        .limit(10);
+        .limit(20);
+
+      // If join fails, try without it
+      if (error) {
+        console.log('Trying simpler query without join...');
+        const result = await supabase
+          .from('carpool_offers')
+          .select('*')
+          .eq('status', 'open')
+          .gt('available_seats', 0)
+          .order('departure_time', { ascending: true })
+          .limit(20);
+        
+        data = result.data;
+        error = result.error;
+      }
 
       if (error) {
         console.error('Error fetching carpool offers:', error);
@@ -222,7 +238,12 @@ export default function PassengerHome() {
       }
 
       console.log('Carpool offers from database:', data);
-      setAvailableOffers(data || []);
+      // Filter out past departures on client side to be safe
+      const validOffers = (data || []).filter(offer => {
+        if (!offer.departure_time) return true;
+        return new Date(offer.departure_time) > new Date();
+      });
+      setAvailableOffers(validOffers);
     } catch (error) {
       console.error('Error fetching carpool offers:', error);
       setAvailableOffers([]);
@@ -239,22 +260,15 @@ export default function PassengerHome() {
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
-        table: 'carpool_offers',
-        filter: 'status=eq.open'
+        table: 'carpool_offers'
       }, (payload) => {
         console.log('Carpool offer update:', payload);
-        if (payload.eventType === 'UPDATE') {
-          setAvailableOffers(prev => 
-            prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o)
-                .filter(o => o.available_seats > 0)
-          );
-        } else if (payload.eventType === 'INSERT') {
-          fetchCarpoolOffers(); // Refetch to include driver info
-        } else if (payload.eventType === 'DELETE') {
-          setAvailableOffers(prev => prev.filter(o => o.id !== payload.old.id));
-        }
+        // Refetch all offers on any change to ensure data consistency
+        fetchCarpoolOffers();
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Carpool subscription status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
