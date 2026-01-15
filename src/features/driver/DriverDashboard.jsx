@@ -1102,34 +1102,6 @@ export default function DriverDashboard() {
                   <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.notifications ? 'right-1' : 'left-1'}`} />
                 </div>
               </button>
-
-              <button 
-                onClick={() => setAppSettings(prev => ({ ...prev, darkMode: !prev.darkMode }))}
-                className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shadow-sm transition-colors ${appSettings.darkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}>
-                    <Moon className="w-5 h-5" />
-                  </div>
-                  <span className="font-medium text-slate-700">Dark Mode</span>
-                </div>
-                <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.darkMode ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.darkMode ? 'right-1' : 'left-1'}`} />
-                </div>
-              </button>
-
-              <button 
-                onClick={() => setAppSettings(prev => ({ ...prev, language: prev.language === 'English' ? 'Swahili' : 'English' }))}
-                className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm"><Globe className="w-5 h-5" /></div>
-                  <span className="font-medium text-slate-700">Language</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-500 text-sm">
-                  {appSettings.language} <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
             </div>
 
             {/* Support & Legal */}
