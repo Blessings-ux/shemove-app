@@ -63,6 +63,9 @@ export default function Login() {
         case 'driver':
           navigate('/driver');
           break;
+        case 'fleet_owner':
+          navigate('/fleet');
+          break;
         default:
           navigate('/passenger');
       }

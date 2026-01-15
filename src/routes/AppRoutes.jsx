@@ -7,6 +7,7 @@ import LandingPage from '../features/landing/LandingPage';
 import PassengerHome from '../features/passenger/PassengerHome';
 import DriverDashboard from '../features/driver/DriverDashboard';
 import AdminDashboard from '../features/admin/AdminDashboard';
+import FleetDashboard from '../features/fleet/FleetDashboard';
 import ProtectedRoute from '../components/ProtectedRoute';
 
 const AppRoutes = () => {
@@ -20,7 +21,7 @@ const AppRoutes = () => {
         <Route path="/signup" element={<Signup />} />
       </Route>
       
-      {/* Full Screen Routes (Passenger & Driver & Admin) */}
+      {/* Full Screen Routes (Passenger & Driver & Admin & Fleet) */}
       <Route path="/passenger" element={
         <ProtectedRoute allowedRoles={['passenger']}>
           <PassengerHome />
@@ -36,6 +37,12 @@ const AppRoutes = () => {
       <Route path="/admin" element={
         <ProtectedRoute allowedRoles={['admin']}>
           <AdminDashboard />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/fleet" element={
+        <ProtectedRoute allowedRoles={['fleet_owner']}>
+          <FleetDashboard />
         </ProtectedRoute>
       } />
       

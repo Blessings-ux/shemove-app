@@ -231,35 +231,82 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             <div className="order-2 lg:order-1">
-              <img 
-                src="/assets/dashboard-graph.png" 
-                alt="Fleet Dashboard" 
-                className="w-full rounded-xl sm:rounded-2xl shadow-2xl border border-gray-800"
-              />
+              <div className="bg-gray-800 rounded-xl sm:rounded-2xl p-6 shadow-2xl border border-gray-700">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-gray-400 text-sm ml-2">Fleet Dashboard</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-gray-700/50 p-4 rounded-xl">
+                    <div className="text-gray-400 text-xs mb-1">Weekly Revenue</div>
+                    <div className="text-2xl font-bold text-emerald-400">KES 127,500</div>
+                  </div>
+                  <div className="bg-gray-700/50 p-4 rounded-xl">
+                    <div className="text-gray-400 text-xs mb-1">Active Drivers</div>
+                    <div className="text-2xl font-bold text-white">8 <span className="text-sm text-gray-400">/ 12</span></div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-700/30 p-3 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-sm font-bold">J</div>
+                      <div>
+                        <div className="font-medium text-sm">John Kamau</div>
+                        <div className="text-xs text-gray-400">KBC 234E • Bodaboda</div>
+                      </div>
+                    </div>
+                    <span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded-full">Online</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/30 p-3 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-sm font-bold">M</div>
+                      <div>
+                        <div className="font-medium text-sm">Mary Wanjiku</div>
+                        <div className="text-xs text-gray-400">KBD 567F • Car</div>
+                      </div>
+                    </div>
+                    <span className="bg-gray-500/20 text-gray-400 text-xs px-2 py-1 rounded-full">Offline</span>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="order-1 lg:order-2 text-center lg:text-left">
+              <div className="inline-flex items-center gap-2 bg-purple-900/50 px-3 sm:px-4 py-2 rounded-full mb-4 sm:mb-6 border border-purple-700">
+                <span className="text-purple-300 font-medium text-sm sm:text-base">🏢 For Fleet Owners</span>
+              </div>
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 sm:mb-6">Manage your fleet effortlessly.</h2>
               <p className="text-gray-400 text-base sm:text-lg mb-6 sm:mb-8">
-                Designed for fleet owners who want total control. Track your vehicles in real-time, 
-                monitor driver performance, and view detailed revenue analytics from a single dashboard.
+                Own multiple vehicles? Track your drivers in real-time, 
+                monitor daily earnings, and grow your transport business with powerful analytics.
               </p>
               <ul className="space-y-3 sm:space-y-4 mb-6 sm:mb-8 inline-block text-left">
                 <li className="flex items-center text-gray-300 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Real-time vehicle tracking
+                  Real-time vehicle tracking & status
                 </li>
                 <li className="flex items-center text-gray-300 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Automated revenue reports
+                  Automated weekly revenue reports
                 </li>
                 <li className="flex items-center text-gray-300 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Driver performance metrics
+                  Add or suspend drivers instantly
+                </li>
+                <li className="flex items-center text-gray-300 text-sm sm:text-base">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
+                  No monthly fees - just results
                 </li>
               </ul>
-              <button className="text-emerald-400 font-semibold hover:text-emerald-300 flex items-center transition-colors mx-auto lg:mx-0">
-                Learn about Fleet Management <ChevronRight className="w-4 h-4 ml-1" />
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                <Link to="/signup" className="inline-flex items-center justify-center bg-purple-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-purple-700 transition-colors">
+                  Register as Fleet Owner <ChevronRight className="w-4 h-4 ml-1" />
+                </Link>
+                <Link to="/login" className="inline-flex items-center justify-center border border-gray-600 text-gray-300 px-6 py-3 rounded-xl font-medium hover:bg-gray-800 transition-colors">
+                  Fleet Owner Login
+                </Link>
+              </div>
             </div>
           </div>
         </div>

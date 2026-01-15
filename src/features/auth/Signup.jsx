@@ -67,6 +67,9 @@ export default function Signup() {
         case 'driver':
           navigate('/driver');
           break;
+        case 'fleet_owner':
+          navigate('/fleet');
+          break;
         case 'passenger':
         default:
           navigate('/passenger');
@@ -152,8 +155,8 @@ export default function Signup() {
 
         <div className="space-y-2">
            <label className="text-sm font-medium">I want to be a:</label>
-           <div className="flex gap-4">
-             <label className="flex items-center gap-2 border p-3 rounded-lg flex-1 cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50">
+           <div className="grid grid-cols-3 gap-3">
+             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50 text-center">
                <input 
                  type="radio" 
                  name="role" 
@@ -162,9 +165,10 @@ export default function Signup() {
                  onChange={(e) => setFormData({...formData, role: e.target.value})}
                  className="accent-primary"
                />
-               <span className="font-medium">Passenger</span>
+               <span className="font-medium text-sm">Passenger</span>
+               <span className="text-xs text-slate-500">Book rides</span>
              </label>
-             <label className="flex items-center gap-2 border p-3 rounded-lg flex-1 cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50">
+             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50 text-center">
                <input 
                  type="radio" 
                  name="role" 
@@ -173,7 +177,20 @@ export default function Signup() {
                  onChange={(e) => setFormData({...formData, role: e.target.value})}
                  className="accent-primary"
                />
-               <span className="font-medium">Driver</span>
+               <span className="font-medium text-sm">Driver</span>
+               <span className="text-xs text-slate-500">Earn money</span>
+             </label>
+             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-purple-600 has-[:checked]:bg-purple-50 text-center">
+               <input 
+                 type="radio" 
+                 name="role" 
+                 value="fleet_owner"
+                 checked={formData.role === 'fleet_owner'}
+                 onChange={(e) => setFormData({...formData, role: e.target.value})}
+                 className="accent-purple-600"
+               />
+               <span className="font-medium text-sm">Fleet Owner</span>
+               <span className="text-xs text-slate-500">Manage vehicles</span>
              </label>
            </div>
         </div>
