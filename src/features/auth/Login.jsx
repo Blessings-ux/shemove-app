@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import { supabase } from '../../services/supabase';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 
@@ -25,10 +26,46 @@ export default function Login() {
         return;
       }
 
-      // Successfully signed in - navigate immediately to passenger page
-      // The auth state change will handle loading the profile in background
+      // Get user ID from the auth response
+      const userId = data?.user?.id;
+      
+      if (!userId) {
+        setError('Login failed - no user ID returned');
+        setIsLoading(false);
+        return;
+      }
+
+      // Directly fetch profile from Supabase to ensure we get the role
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, full_name, phone')
+        .eq('id', userId)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+      }
+
+      const role = profileData?.role || 'passenger';
+      
+      console.log('Login successful!');
+      console.log('User ID:', userId);
+      console.log('Profile data:', profileData);
+      console.log('Role:', role);
+      
       setIsLoading(false);
-      navigate('/passenger');
+      
+      // Navigate to the appropriate dashboard based on role
+      switch (role) {
+        case 'admin':
+          navigate('/admin');
+          break;
+        case 'driver':
+          navigate('/driver');
+          break;
+        default:
+          navigate('/passenger');
+      }
       
     } catch (err) {
       console.error('Login error:', err);

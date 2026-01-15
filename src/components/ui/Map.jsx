@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect } from 'react';
 import L from 'leaflet';
@@ -30,7 +30,21 @@ function LocationMarker({ position }) {
   );
 }
 
-export default function Map({ center = [-1.286389, 36.817223], zoom = 13, markers = [], className }) {
+// Component to fit map bounds to route
+function RouteFitter({ routeCoordinates }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (routeCoordinates && routeCoordinates.length > 0) {
+      const bounds = L.latLngBounds(routeCoordinates);
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [routeCoordinates, map]);
+  
+  return null;
+}
+
+export default function Map({ center = [-1.286389, 36.817223], zoom = 13, markers = [], routeCoordinates = [], className }) {
     // Default center: Nairobi
   return (
     <MapContainer center={center} zoom={zoom} scrollWheelZoom={true} className={className} style={{ height: '100%', width: '100%' }}>
@@ -43,6 +57,19 @@ export default function Map({ center = [-1.286389, 36.817223], zoom = 13, marker
              {marker.popup && <Popup>{marker.popup}</Popup>}
          </Marker> 
       ))}
+      
+      {/* Render Route Polyline */}
+      {routeCoordinates && routeCoordinates.length > 0 && (
+        <>
+          <Polyline 
+            positions={routeCoordinates} 
+            color="#059669" // Emerald 600
+            weight={5} 
+            opacity={0.8} 
+          />
+          <RouteFitter routeCoordinates={routeCoordinates} />
+        </>
+      )}
     </MapContainer>
   );
 }
