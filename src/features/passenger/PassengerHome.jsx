@@ -1,10 +1,14 @@
 // src/features/passenger/PassengerHome.jsx
 import { useState, useEffect } from 'react';
-import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight } from 'lucide-react';
+import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight, Home, Briefcase } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import Map from '../../components/ui/Map';
+import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
+import { searchLocation, reverseGeocode } from '../../services/geocoding';
+
+import { getRoute } from '../../services/routing';
 
 export default function PassengerHome() {
   const navigate = useNavigate();
@@ -17,15 +21,37 @@ export default function PassengerHome() {
   const [isRequestingRide, setIsRequestingRide] = useState(false);
   const [currentRide, setCurrentRide] = useState(null);
   const [destination, setDestination] = useState('');
+  const [dropoffLocation, setDropoffLocation] = useState(null);
+  const [pickupAddress, setPickupAddress] = useState('Current Location');
+  const [estimatedFare, setEstimatedFare] = useState(0);
+  const [estimatedDistance, setEstimatedDistance] = useState(0);
+  const [isCarpool, setIsCarpool] = useState(false);
+  const [seatsBooked, setSeatsBooked] = useState(1);
   const [rideHistory, setRideHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [appSettings, setAppSettings] = useState({
     notifications: true,
     darkMode: false,
     language: 'English'
   });
+  const [availableOffers, setAvailableOffers] = useState([]);
+  const [selectedOffer, setSelectedOffer] = useState(null);
+  
+  // Saved Locations State
+  const [savedLocations, setSavedLocations] = useState({
+    home: null,
+    work: null,
+    saved: []
+  });
+  const [showSaveLocationModal, setShowSaveLocationModal] = useState(null); // 'home', 'work', or null
+  const [carpoolSearchQuery, setCarpoolSearchQuery] = useState('');
+  
+  // Notifications State
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Dark mode effect
   useEffect(() => {
@@ -51,6 +77,85 @@ export default function PassengerHome() {
     }
   }, []);
 
+  // Load saved locations from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('jiraniride_saved_locations');
+    if (saved) {
+      try {
+        setSavedLocations(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse saved locations');
+      }
+    }
+  }, []);
+
+  // Save a location (home or work)
+  const saveLocation = (type, location) => {
+    const updated = { ...savedLocations, [type]: location };
+    setSavedLocations(updated);
+    localStorage.setItem('jiraniride_saved_locations', JSON.stringify(updated));
+    setShowSaveLocationModal(null);
+  };
+
+  // Use a saved location
+  const useSavedLocation = (type) => {
+    const location = savedLocations[type];
+    if (location) {
+      setDestination(location.name);
+      setDropoffLocation({ lat: location.lat, lng: location.lng });
+      setBookingStep('selecting');
+    } else {
+      setShowSaveLocationModal(type);
+    }
+  };
+
+  // Fetch route when pickup and dropoff are available
+  useEffect(() => {
+    const fetchRoute = async () => {
+      if (pickupLocation && dropoffLocation) {
+        const coords = await getRoute(pickupLocation, dropoffLocation);
+        if (coords) setRouteCoordinates(coords);
+      } else {
+        setRouteCoordinates([]);
+      }
+    };
+    fetchRoute();
+  }, [pickupLocation, dropoffLocation]);
+
+  // Fetch profile on mount if not loaded
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (user && !profile) {
+        console.log('Fetching profile for user:', user.id);
+        
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) {
+          console.error('Profile fetch error:', error.message);
+          // Fallback: use user metadata if profile fetch fails
+          if (user.user_metadata) {
+            const fallbackProfile = {
+              id: user.id,
+              full_name: user.user_metadata.full_name || user.email?.split('@')[0] || 'User',
+              phone: user.user_metadata.phone || '',
+              role: user.user_metadata.role || 'passenger'
+            };
+            useAuthStore.setState({ profile: fallbackProfile });
+            console.log('Using fallback profile from metadata:', fallbackProfile);
+          }
+        } else if (data) {
+          useAuthStore.setState({ profile: data });
+          console.log('Profile loaded from DB:', data);
+        }
+      }
+    };
+    fetchProfile();
+  }, [user, profile]);
+
   useEffect(() => {
     if (activePanel === 'rides' && user) fetchRideHistory();
   }, [activePanel, user]);
@@ -64,31 +169,358 @@ export default function PassengerHome() {
     finally { setIsLoadingHistory(false); }
   };
 
-  const handleLogout = async () => { await supabase.auth.signOut(); navigate('/login'); };
+  const handleLogout = async () => { 
+    try {
+      await supabase.auth.signOut(); 
+      navigate('/login'); 
+    } catch (error) {
+      console.error('Logout error:', error);
+      navigate('/login');
+    }
+  };
   const getGreeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
-  const getFare = (v) => ({ boda: 100, tuktuk: 200, taxi: 400 }[v] || 200);
+  
+  // Fare calculation: KES 75 per km with minimum fare based on vehicle
+  const RATE_PER_KM = 75;
+  const MIN_FARES = { boda: 50, tuktuk: 100, taxi: 200 };
+  
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in km
+  };
+  
+  const getFare = (distanceKm, vehicleType = 'boda') => {
+    const minFare = MIN_FARES[vehicleType] || 50;
+    const calculatedFare = Math.round(distanceKm * RATE_PER_KM);
+    return Math.max(calculatedFare, minFare);
+  };
+
+  // Fetch available carpool offers from database
+  const fetchCarpoolOffers = async () => {
+    try {
+      console.log('Fetching carpool offers from database...');
+      
+      // First try with driver join
+      let { data, error } = await supabase
+        .from('carpool_offers')
+        .select('*, driver:profiles(full_name)')
+        .eq('status', 'open')
+        .gt('available_seats', 0)
+        .order('departure_time', { ascending: true })
+        .limit(20);
+
+      // If join fails, try without it
+      if (error) {
+        console.log('Trying simpler query without join...');
+        const result = await supabase
+          .from('carpool_offers')
+          .select('*')
+          .eq('status', 'open')
+          .gt('available_seats', 0)
+          .order('departure_time', { ascending: true })
+          .limit(20);
+        
+        data = result.data;
+        error = result.error;
+      }
+
+      if (error) {
+        console.error('Error fetching carpool offers:', error);
+        setAvailableOffers([]);
+        return;
+      }
+
+      console.log('Carpool offers from database:', data);
+      // Filter out past departures on client side to be safe
+      const validOffers = (data || []).filter(offer => {
+        if (!offer.departure_time) return true;
+        return new Date(offer.departure_time) > new Date();
+      });
+      setAvailableOffers(validOffers);
+    } catch (error) {
+      console.error('Error fetching carpool offers:', error);
+      setAvailableOffers([]);
+    }
+  };
+
+  // Subscribe to real-time carpool offer updates
+  useEffect(() => {
+    // Always fetch carpool offers on mount
+    fetchCarpoolOffers();
+
+    const channel = supabase
+      .channel('carpool-offers-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'carpool_offers'
+      }, (payload) => {
+        console.log('Carpool offer update:', payload);
+        // Refetch all offers on any change to ensure data consistency
+        fetchCarpoolOffers();
+      })
+      .subscribe((status) => {
+        console.log('Carpool subscription status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // Run once on mount
+
+  // Fetch and subscribe to notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchNotifications = async () => {
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (data) setNotifications(data);
+    };
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel(`passenger-notifications-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        console.log('New notification:', payload.new);
+        setNotifications(prev => [payload.new, ...prev]);
+        setShowNotifications(true);
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
+
+  // Book a carpool offer - INSTANT connection, no confirmation needed
+  const bookCarpoolOffer = async (offer) => {
+    if (!user || seatsBooked > offer.available_seats) {
+      alert('Not enough seats available');
+      return;
+    }
+
+    setIsRequestingRide(true);
+    // Go directly to matched - no searching needed for carpool
+    setBookingStep('matched');
+
+    try {
+      // Fetch driver info
+      const { data: driverData } = await supabase
+        .from('profiles')
+        .select('full_name, phone')
+        .eq('id', offer.driver_id)
+        .single();
+
+      const { data: driverVehicle } = await supabase
+        .from('drivers')
+        .select('vehicle_type, plate_number')
+        .eq('id', offer.driver_id)
+        .single();
+
+      // Create ride linked to the offer - status is already 'accepted'
+      const { data: ride, error: rideError } = await supabase.from('rides').insert({
+        passenger_id: user.id,
+        driver_id: offer.driver_id,
+        pickup_location: `POINT(36.8 -1.3)`, // Would use offer location
+        dropoff_location: `POINT(36.9 -1.2)`,
+        fare: offer.fare_per_seat * seatsBooked,
+        status: 'accepted', // Already accepted - driver pre-approved this
+        ride_type: 'shared',
+        seats_booked: seatsBooked,
+        carpool_offer_id: offer.id
+      }).select().single();
+
+      if (rideError) throw rideError;
+
+      // Decrement available seats
+      const newAvailable = offer.available_seats - seatsBooked;
+      const { error: offerError } = await supabase
+        .from('carpool_offers')
+        .update({ 
+          available_seats: newAvailable,
+          status: newAvailable <= 0 ? 'full' : 'open'
+        })
+        .eq('id', offer.id);
+
+      if (offerError) throw offerError;
+
+      // Set current ride with full driver info for display
+      setCurrentRide({
+        ...ride,
+        driverName: driverData?.full_name || 'Driver',
+        driverPhone: driverData?.phone || '',
+        vehicleType: driverVehicle?.vehicle_type || offer.vehicle_type || 'taxi',
+        plateNumber: driverVehicle?.plate_number || '',
+        pickupName: offer.pickup_name,
+        dropoffName: offer.dropoff_name,
+        departureTime: offer.departure_time
+      });
+
+      // Notify driver about the new passenger (via realtime update on rides table)
+      // The driver dashboard already subscribes to rides, so this will show up
+      console.log('Carpool booked instantly! Connected to driver:', driverData?.full_name);
+      
+      // Also create a notification record (driver will see this via subscription)
+      await supabase.from('notifications').insert({
+        user_id: offer.driver_id,
+        type: 'carpool_booking',
+        title: 'New Carpool Passenger!',
+        message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
+        data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
+      }).catch(err => console.log('Notification insert skipped:', err.message));
+    } catch (error) {
+      console.error('Error booking carpool:', error);
+      alert('Failed to book carpool. Please try again.');
+      setBookingStep('idle');
+    } finally {
+      setIsRequestingRide(false);
+    }
+  };
 
   const handleRequestRide = async () => {
-    if (!destination || !pickupLocation) return;
+    // Validate required fields
+    if (!destination || !pickupLocation) {
+      console.error('Missing required fields: destination or pickup location');
+      return;
+    }
+    
+    // For now, simulate dropoff as offset from pickup if not set
+    // In production, this would come from geocoding the destination
+    const dropoff = dropoffLocation || {
+      lat: pickupLocation.lat + 0.02, // ~2km offset
+      lng: pickupLocation.lng + 0.02
+    };
+    
+    // Calculate distance and fare
+    const distanceKm = calculateDistance(
+      pickupLocation.lat, pickupLocation.lng,
+      dropoff.lat, dropoff.lng
+    );
+    const calculatedFare = estimatedFare || getFare(distanceKm, selectedVehicle);
+    
     setIsRequestingRide(true);
     setBookingStep('searching');
+    
     try {
+      // 1. Create ride request in database
       const { data: ride, error } = await supabase.from('rides').insert({
         passenger_id: user.id,
         pickup_location: `POINT(${pickupLocation.lng} ${pickupLocation.lat})`,
-        dropoff_location: `POINT(${pickupLocation.lng + 0.01} ${pickupLocation.lat + 0.01})`,
-        fare: getFare(selectedVehicle),
-        status: 'pending'
+        dropoff_location: `POINT(${dropoff.lng} ${dropoff.lat})`,
+        fare: calculatedFare,
+        status: 'pending',
+        ride_type: isCarpool ? 'shared' : 'solo',
+        seats_booked: isCarpool ? seatsBooked : 1
       }).select().single();
+      
       if (error) throw error;
       setCurrentRide(ride);
-      setTimeout(() => setBookingStep('matched'), 3000);
-    } catch (error) { console.error('Error requesting ride:', error); setBookingStep('selecting'); }
-    finally { setIsRequestingRide(false); }
+      
+      // 2. Find nearby drivers using RPC
+      const { data: nearbyDrivers, error: driversError } = await supabase.rpc('get_nearby_drivers', {
+        user_lat: pickupLocation.lat,
+        user_long: pickupLocation.lng,
+        radius_meters: 5000
+      });
+      
+      if (!driversError && nearbyDrivers?.length > 0) {
+        console.log('Nearby drivers found:', nearbyDrivers);
+      } else {
+        console.log('No nearby drivers found, waiting for any driver...');
+      }
+      
+      // 3. Subscribe to ride updates (when driver accepts)
+      const channel = supabase
+        .channel(`ride-${ride.id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rides',
+          filter: `id=eq.${ride.id}`
+        }, async (payload) => {
+          console.log('Ride updated:', payload.new);
+          const updatedRide = payload.new;
+          setCurrentRide(updatedRide);
+          
+          // Check if driver accepted
+          if (updatedRide.status === 'accepted' && updatedRide.driver_id) {
+            // Clear the fallback timeout
+            if (window.rideTimeout) clearTimeout(window.rideTimeout);
+            
+            // Fetch driver details
+            const { data: driverProfile } = await supabase
+              .from('profiles')
+              .select('full_name, phone')
+              .eq('id', updatedRide.driver_id)
+              .single();
+            
+            const { data: driverInfo } = await supabase
+              .from('drivers')
+              .select('vehicle_type, plate_number')
+              .eq('id', updatedRide.driver_id)
+              .single();
+            
+            setCurrentRide({
+              ...updatedRide,
+              driverName: driverProfile?.full_name || 'Driver',
+              driverPhone: driverProfile?.phone || '',
+              vehicleType: driverInfo?.vehicle_type || 'boda',
+              plateNumber: driverInfo?.plate_number || ''
+            });
+            
+            setBookingStep('matched');
+          } else if (updatedRide.status === 'cancelled') {
+            if (window.rideTimeout) clearTimeout(window.rideTimeout);
+            setBookingStep('idle');
+            setCurrentRide(null);
+          }
+        })
+        .subscribe();
+      
+      // Store channel for cleanup
+      window.rideChannel = channel;
+      
+      // 4. Timeout: If no driver accepts in 30 seconds, show message
+      window.rideTimeout = setTimeout(() => {
+        // No real driver found - show message and return to selecting
+        setCurrentRide(null);
+        setBookingStep('selecting');
+        alert('No drivers available right now. Please try again in a moment.');
+      }, 30000); // 30 seconds timeout
+      
+    } catch (error) { 
+      console.error('Error requesting ride:', error); 
+      setBookingStep('selecting'); 
+    } finally { 
+      setIsRequestingRide(false); 
+    }
   };
 
   const handleCancelRide = async () => {
-    if (currentRide) await supabase.from('rides').update({ status: 'cancelled' }).eq('id', currentRide.id);
+    if (currentRide) {
+      await supabase.from('rides').update({ status: 'cancelled' }).eq('id', currentRide.id);
+      // Cleanup real-time subscription
+      if (window.rideChannel) {
+        supabase.removeChannel(window.rideChannel);
+        window.rideChannel = null;
+      }
+    }
     setCurrentRide(null);
     setBookingStep('idle');
     setDestination('');
@@ -104,10 +536,38 @@ export default function PassengerHome() {
   };
 
   const openPanel = (panel) => { setMenuOpen(false); setActivePanel(panel); if (panel === 'profile') setProfileForm({ full_name: profile?.full_name || '', phone: profile?.phone || '' }); };
+  
+  // Combine markers for map
+  const getMapMarkers = () => {
+    const markers = [];
+    if (pickupLocation) markers.push({ position: [pickupLocation.lat, pickupLocation.lng], popup: "Pickup" });
+    if (dropoffLocation) markers.push({ position: [dropoffLocation.lat, dropoffLocation.lng], popup: "Dropoff" });
+    return markers;
+  };
 
   return (
     <div className="h-[100dvh] w-full bg-white font-sans text-slate-900 flex flex-col lg:flex-row overflow-hidden">
       
+      {/* Save Location Modal */}
+      {showSaveLocationModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">
+                Set {showSaveLocationModal === 'home' ? 'Home' : 'Work'} Location
+              </h3>
+              <button onClick={() => setShowSaveLocationModal(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <SaveLocationForm 
+              type={showSaveLocationModal}
+              onSave={(location) => saveLocation(showSaveLocationModal, location)}
+              onCancel={() => setShowSaveLocationModal(null)}
+            />
+          </div>
+        </div>
+      )}
       {/* === MOBILE LAYOUT: Split Screen === */}
       <div className="lg:hidden flex flex-col h-full">
         
@@ -131,23 +591,66 @@ export default function PassengerHome() {
               </div>
             </div>
 
-            {/* Settings Button */}
-            <button 
-              onClick={() => openPanel('settings')}
-              className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
+            {/* Notification & Settings Buttons */}
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700 relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+              <button 
+                onClick={() => openPanel('settings')}
+                className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700"
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+            </div>
           </div>
+
+          {/* Notification Dropdown */}
+          {showNotifications && (
+            <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
+              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
+                <h4 className="font-bold text-slate-800">Notifications</h4>
+                <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
+                  <X className="w-4 h-4 text-slate-500" />
+                </button>
+              </div>
+              {notifications.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {notifications.map(n => (
+                    <div key={n.id} className={`p-3 ${!n.read ? 'bg-emerald-50' : ''}`}>
+                      <div className="font-medium text-slate-800 text-sm">{n.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">{n.message}</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {new Date(n.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-slate-500 text-sm">
+                  No notifications yet
+                </div>
+              )}
+            </div>
+          )}
         </div>
         
         {/* TOP HALF: Map (with padding for fixed header) */}
         <div className="relative h-[40vh] flex-shrink-0 mt-20">
           <Map 
             center={pickupLocation ? [pickupLocation.lat, pickupLocation.lng] : defaultCenter}
-            zoom={15}
+            zoom={13}
             className="h-full w-full"
-            markers={pickupLocation ? [{ position: [pickupLocation.lat, pickupLocation.lng], popup: "You are here" }] : []}
+            markers={getMapMarkers()}
+            routeCoordinates={routeCoordinates}
           />
         </div>
         
@@ -161,6 +664,18 @@ export default function PassengerHome() {
               userName={userName} getGreeting={getGreeting} getFare={getFare}
               handleRequestRide={handleRequestRide} handleCancelRide={handleCancelRide}
               isRequestingRide={isRequestingRide}
+              currentRide={currentRide}
+              pickupLocation={pickupLocation}
+              setDropoffLocation={setDropoffLocation}
+              estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
+              estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
+              isCarpool={isCarpool} setIsCarpool={setIsCarpool}
+              seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
+              availableOffers={availableOffers} bookCarpoolOffer={bookCarpoolOffer}
+              savedLocations={savedLocations} useSavedLocation={useSavedLocation}
+              setShowSaveLocationModal={setShowSaveLocationModal}
+              carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
+              setPickupLocation={setPickupLocation}
             />
           </div>
           {/* Safe area for iOS */}
@@ -175,9 +690,10 @@ export default function PassengerHome() {
         <div className="flex-1 relative">
           <Map 
             center={pickupLocation ? [pickupLocation.lat, pickupLocation.lng] : defaultCenter}
-            zoom={15}
+            zoom={13}
             className="h-full w-full"
-            markers={pickupLocation ? [{ position: [pickupLocation.lat, pickupLocation.lng], popup: "You are here" }] : []}
+            markers={getMapMarkers()}
+            routeCoordinates={routeCoordinates}
           />
         </div>
         
@@ -230,6 +746,18 @@ export default function PassengerHome() {
                 userName={userName} getGreeting={getGreeting} getFare={getFare}
                 handleRequestRide={handleRequestRide} handleCancelRide={handleCancelRide}
                 isRequestingRide={isRequestingRide}
+                currentRide={currentRide}
+                pickupLocation={pickupLocation}
+                setDropoffLocation={setDropoffLocation}
+                estimatedFare={estimatedFare} setEstimatedFare={setEstimatedFare}
+                estimatedDistance={estimatedDistance} setEstimatedDistance={setEstimatedDistance}
+                isCarpool={isCarpool} setIsCarpool={setIsCarpool}
+                seatsBooked={seatsBooked} setSeatsBooked={setSeatsBooked}
+                availableOffers={availableOffers} bookCarpoolOffer={bookCarpoolOffer}
+                savedLocations={savedLocations} useSavedLocation={useSavedLocation}
+                setShowSaveLocationModal={setShowSaveLocationModal}
+                carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
+                setPickupLocation={setPickupLocation}
               />
             )}
           </div>
@@ -298,7 +826,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -318,25 +846,38 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           </div>
         </div>
         
-        {/* Quick Action Shortcuts - Uber Style */}
+        {/* Quick Action Shortcuts - Functional */}
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-blue-600" />
+          <button 
+            onClick={() => useSavedLocation('home')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-blue-50"
+          >
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${savedLocations?.home ? 'bg-blue-500' : 'bg-blue-100'}`}>
+              <Home className={`w-6 h-6 ${savedLocations?.home ? 'text-white' : 'text-blue-600'}`} />
             </div>
-            <span className="text-sm font-medium text-slate-700">Home</span>
+            <span className="text-sm font-medium text-slate-700">
+              {savedLocations?.home ? savedLocations.home.name?.split(',')[0] : 'Set Home'}
+            </span>
           </button>
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
-            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-purple-600" />
+          <button 
+            onClick={() => useSavedLocation('work')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-purple-50"
+          >
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${savedLocations?.work ? 'bg-purple-500' : 'bg-purple-100'}`}>
+              <Briefcase className={`w-6 h-6 ${savedLocations?.work ? 'text-white' : 'text-purple-600'}`} />
             </div>
-            <span className="text-sm font-medium text-slate-700">Work</span>
+            <span className="text-sm font-medium text-slate-700">
+              {savedLocations?.work ? savedLocations.work.name?.split(',')[0] : 'Set Work'}
+            </span>
           </button>
-          <button className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition">
+          <button 
+            onClick={() => setBookingStep('selecting')}
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-emerald-50"
+          >
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <Star className="w-6 h-6 text-emerald-600" />
             </div>
-            <span className="text-sm font-medium text-slate-700">Saved</span>
+            <span className="text-sm font-medium text-slate-700">New Trip</span>
           </button>
         </div>
         
@@ -354,12 +895,147 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
             <Navigation className="w-4 h-4 text-slate-400 flex-shrink-0" />
           </div>
         </div>
+
+        {/* Carpool Offers Section - Always Visible */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-600" />
+              <h4 className="text-sm font-bold text-purple-600 uppercase tracking-wide">Available Carpools</h4>
+            </div>
+            <span className="text-xs text-slate-400">{availableOffers?.length || 0} rides</span>
+          </div>
+          
+          {/* Search Box */}
+          <div className="mb-3">
+            <input
+              type="text"
+              value={carpoolSearchQuery}
+              onChange={(e) => setCarpoolSearchQuery(e.target.value)}
+              placeholder="Search by destination..."
+              className="w-full p-3 bg-purple-50 border border-purple-100 rounded-xl text-sm placeholder:text-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+          </div>
+          
+          {/* Offers List */}
+          <div className="space-y-3 max-h-80 overflow-y-auto">
+            {availableOffers && availableOffers.length > 0 ? (
+              availableOffers
+                .filter(offer => 
+                  !carpoolSearchQuery || 
+                  offer.pickup_name?.toLowerCase().includes(carpoolSearchQuery.toLowerCase()) ||
+                  offer.dropoff_name?.toLowerCase().includes(carpoolSearchQuery.toLowerCase())
+                )
+                .map(offer => (
+                  <div
+                    key={offer.id}
+                    className="p-4 bg-white rounded-xl border border-purple-200 shadow-sm"
+                  >
+                    {/* Route Info */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        {offer.vehicle_type === 'boda' && <Bike className="w-5 h-5 text-purple-600" />}
+                        {offer.vehicle_type === 'tuktuk' && <Car className="w-5 h-5 text-purple-600" />}
+                        {(!offer.vehicle_type || offer.vehicle_type === 'taxi') && <Car className="w-5 h-5 text-purple-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-slate-900">
+                          {offer.pickup_name} → {offer.dropoff_name}
+                        </div>
+                        <div className="text-sm text-slate-500">
+                          {new Date(offer.departure_time).toLocaleString([], {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Driver Info */}
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl mb-3">
+                      <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                        {offer.driver?.full_name?.charAt(0) || 'D'}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-800">{offer.driver?.full_name || 'Driver'}</div>
+                        <div className="text-xs text-slate-500 capitalize">{offer.vehicle_type || 'Taxi'} Driver</div>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Show driver profile modal (future)
+                          alert(`Driver: ${offer.driver?.full_name || 'Driver'}\nVehicle: ${offer.vehicle_type || 'Taxi'}`);
+                        }}
+                        className="px-3 py-1 text-xs font-bold text-purple-600 bg-purple-50 rounded-full hover:bg-purple-100"
+                      >
+                        View Profile
+                      </button>
+                    </div>
+
+                    {/* Seats & Fare */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-purple-600">{offer.available_seats}</div>
+                          <div className="text-xs text-slate-500">Seats Left</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-lg font-bold text-emerald-600">KES {offer.fare_per_seat}</div>
+                          <div className="text-xs text-slate-500">Per Seat</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-slate-500">Total for {seatsBooked} seat{seatsBooked > 1 ? 's' : ''}</div>
+                        <div className="text-xl font-bold text-slate-900">KES {offer.fare_per_seat * seatsBooked}</div>
+                      </div>
+                    </div>
+
+                    {/* Seat Selector */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs text-slate-500 font-medium">Seats:</span>
+                      {[1, 2, 3, 4].filter(n => n <= offer.available_seats).map(num => (
+                        <button
+                          key={num}
+                          onClick={() => setSeatsBooked(num)}
+                          className={`w-8 h-8 rounded-full font-bold text-sm transition ${
+                            seatsBooked === num 
+                              ? 'bg-purple-600 text-white' 
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Join Button */}
+                    <button
+                      onClick={() => bookCarpoolOffer(offer)}
+                      disabled={seatsBooked > offer.available_seats}
+                      className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Join This Ride
+                    </button>
+                  </div>
+                ))
+            ) : (
+              <div className="p-6 bg-purple-50 rounded-xl text-center">
+                <Users className="w-8 h-8 text-purple-300 mx-auto mb-2" />
+                <div className="text-slate-600 font-medium">No carpools available</div>
+                <div className="text-sm text-slate-400">Check back later or request your own ride</div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
   if (bookingStep === 'selecting') {
-    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep }} />;
+    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }} />;
   }
 
   if (bookingStep === 'searching') {
@@ -374,6 +1050,12 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'matched') {
+    const driverName = currentRide?.driverName || 'Driver';
+    const driverInitials = driverName.split(' ').map(n => n[0]).join('').toUpperCase() || 'D';
+    const vehicleInfo = currentRide?.vehicleType || selectedVehicle;
+    const plateNumber = currentRide?.plateNumber || 'Pending...';
+    const driverPhone = currentRide?.driverPhone || '';
+    
     return (
       <div>
         <div className="text-center mb-6">
@@ -385,24 +1067,27 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
         </div>
         <div className="bg-slate-50 p-5 rounded-2xl mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-18 h-18 bg-emerald-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">JK</div>
+            <div className="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
+              {driverInitials}
+            </div>
             <div className="flex-1">
-              <h4 className="font-bold text-slate-900 text-lg">John Kamau</h4>
-              <p className="text-sm text-slate-500">Honda CB 125 • KDB 123X</p>
+              <h4 className="font-bold text-slate-900 text-lg">{driverName}</h4>
+              <p className="text-sm text-slate-500 capitalize">{vehicleInfo} • {plateNumber}</p>
               <div className="flex items-center gap-1 mt-1.5">
                 <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                 <span className="text-sm font-medium">4.8</span>
-                <span className="text-xs text-slate-400 ml-1">(256 trips)</span>
               </div>
             </div>
-            <button className="w-14 h-14 bg-emerald-600 rounded-full flex items-center justify-center text-white hover:bg-emerald-700 transition active:scale-95 shadow-lg">
-              <Phone className="w-6 h-6" />
-            </button>
+            {driverPhone && (
+              <a href={`tel:${driverPhone}`} className="w-14 h-14 bg-emerald-600 rounded-full flex items-center justify-center text-white hover:bg-emerald-700 transition active:scale-95 shadow-lg">
+                <Phone className="w-6 h-6" />
+              </a>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-between text-base mb-5 px-1">
           <span className="text-slate-500">Estimated fare</span>
-          <span className="font-bold text-slate-900 text-lg">KES {getFare(selectedVehicle)}</span>
+          <span className="font-bold text-slate-900 text-lg">KES {currentRide?.fare || getFare(selectedVehicle)}</span>
         </div>
         <button onClick={handleCancelRide} className="w-full py-4 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition active:scale-[0.98]">
           Cancel Ride
@@ -429,178 +1114,338 @@ function MobileBottomSheet(props) {
   );
 }
 
-function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep }) {
-  const [shareRide, setShareRide] = useState(false);
-  const [shareCode, setShareCode] = useState('');
-  const [joinCode, setJoinCode] = useState('');
-  const [showJoinInput, setShowJoinInput] = useState(false);
+function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }) {
+  const [pickupText, setPickupText] = useState(pickupLocation ? 'Current Location' : '');
+  const [searchResults, setSearchResults] = useState([]);
+  const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
+  const [isSearching, setIsSearching] = useState(false);
   
-  // Mock corporate data - in production, fetch from Supabase
-  const isCorporate = false; // Will be true if user is linked to corporate account
-  const companyName = "TechCorp Ltd";
-  
-  const baseFares = { boda: 100, tuktuk: 200, taxi: 400 };
-  const getBaseFare = (v) => baseFares[v] || 200;
-  const getSharedFare = (v) => Math.round(getBaseFare(v) * 0.6); // 40% off when sharing
-  
-  const generateShareCode = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setShareCode(code);
+  // Debounced search - triggers geocoding
+  useEffect(() => {
+    const query = activeSearchField === 'pickup' ? pickupText : destination;
+    
+    // Clear results when not searching
+    if (!activeSearchField || !query || query.length <= 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      console.log('🔍 Searching for:', query);
+      setIsSearching(true);
+      try {
+        const results = await searchLocation(query);
+        console.log('📍 Results:', results);
+        setSearchResults(results);
+      } catch (err) {
+        console.error('Search error:', err);
+        setSearchResults([]);
+      }
+      setIsSearching(false);
+    }, 500); // 500ms debounce - faster response
+
+    return () => clearTimeout(timer);
+  }, [pickupText, destination, activeSearchField]);
+
+  const handleSelectLocation = (result) => {
+    if (activeSearchField === 'pickup') {
+      const newPickup = { lat: result.lat, lng: result.lng };
+      setPickupLocation(newPickup);
+      setPickupText(result.name);
+    } else {
+      setDestination(result.name);
+      setDropoffLocation({ lat: result.lat, lng: result.lng });
+      
+      if (pickupLocation) {
+        const dist = calculateDistance(pickupLocation.lat, pickupLocation.lng, result.lat, result.lng);
+        setEstimatedDistance(dist);
+        // Fare will be updated when vehicle or distance changes
+        if (setEstimatedFare) {
+             setEstimatedFare(calculateFare(dist, selectedVehicle, isCarpool));
+        }
+      }
+    }
+    setSearchResults([]);
+    setActiveSearchField(null);
   };
 
+  const vehicles = [
+    { id: 'boda', icon: Bike, label: 'Boda', desc: 'Fast & affordable' },
+    { id: 'tuktuk', icon: Car, label: 'Tuktuk', desc: 'Good for groups' },
+    { id: 'taxi', icon: Car, label: 'Taxi', desc: 'Comfortable' },
+  ];
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-slate-800">Book a Ride</h3>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-lg font-bold text-slate-800">Plan your ride</h3>
         <button onClick={() => setBookingStep('idle')} className="text-slate-400 hover:text-slate-700 text-sm">Cancel</button>
       </div>
-      
-      {/* Corporate Badge - Shows if user is linked to company */}
-      {isCorporate && (
-        <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl mb-4 flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
-            {companyName.split(' ').map(w => w[0]).join('')}
-          </div>
-          <div className="flex-1">
-            <div className="font-medium text-blue-900 text-sm">{companyName}</div>
-            <div className="text-xs text-blue-600">Corporate Account • Ride Covered</div>
-          </div>
-          <CheckCircle className="w-5 h-5 text-blue-600" />
+
+      {/* INPUTS */}
+      <div className="space-y-3 relative">
+        {/* Pickup */}
+        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-200 transition">
+           <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
+             <MapPin className="w-5 h-5 text-emerald-600" />
+           </div>
+           <div className="flex-1">
+             <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Pickup</div>
+             <input 
+                type="text" 
+                value={pickupText}
+                onChange={(e) => { setPickupText(e.target.value); setActiveSearchField('pickup'); }}
+                onFocus={() => setActiveSearchField('pickup')}
+                placeholder="Enter pickup location..."
+                className="w-full bg-transparent border-none p-0 text-base font-semibold focus:ring-0 focus:outline-none text-slate-800 placeholder:text-slate-400"
+             />
+           </div>
+           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />}
+           <button
+             type="button"
+             onClick={async () => {
+               if (navigator.geolocation) {
+                 navigator.geolocation.getCurrentPosition(
+                   async (position) => {
+                     const { latitude, longitude } = position.coords;
+                     setPickupLocation({ lat: latitude, lng: longitude });
+                     try {
+                       const address = await reverseGeocode(latitude, longitude);
+                       setPickupText(address || 'Current Location');
+                     } catch (err) {
+                       setPickupText('Current Location');
+                     }
+                   },
+                   (err) => {
+                     console.error('Geolocation error:', err);
+                     // Fallback to default Nairobi location
+                     const defaultLocation = { lat: -1.2921, lng: 36.8219 };
+                     setPickupLocation(defaultLocation);
+                     setPickupText('Nairobi CBD (Default)');
+                     
+                     // Show specific error message
+                     if (err.code === 1) {
+                       console.log('Permission denied - using default location');
+                     } else if (err.code === 2) {
+                       console.log('Position unavailable - using default location');
+                     } else if (err.code === 3) {
+                       console.log('Timeout - using default location');
+                     }
+                   },
+                   { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                 );
+               } else {
+                 // Fallback for browsers without geolocation
+                 const defaultLocation = { lat: -1.2921, lng: 36.8219 };
+                 setPickupLocation(defaultLocation);
+                 setPickupText('Nairobi CBD (Default)');
+               }
+             }}
+             className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition whitespace-nowrap flex items-center gap-1"
+           >
+             📍 My Location
+           </button>
         </div>
-      )}
-      
-      {/* Destination Input */}
-      <div className="mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-          <span className="text-sm text-slate-500">Current Location</span>
+
+        {/* Destination */}
+        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-200 transition">
+           <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+             <MapPin className="w-5 h-5 text-red-500" />
+           </div>
+           <div className="flex-1">
+             <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Dropoff</div>
+             <input 
+                type="text" 
+                value={destination}
+                onChange={(e) => { setDestination(e.target.value); setActiveSearchField('destination'); }}
+                onFocus={() => setActiveSearchField('destination')}
+                placeholder="Where are you going?"
+                className="w-full bg-transparent border-none p-0 text-base font-semibold focus:ring-0 focus:outline-none text-slate-800 placeholder:text-slate-400"
+             />
+           </div>
+           {activeSearchField === 'destination' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-red-500" />}
         </div>
-        <input 
-          type="text" 
-          value={destination} 
-          onChange={(e) => setDestination(e.target.value)} 
-          placeholder="Enter destination..." 
-          className="w-full p-4 bg-slate-100 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-        />
+
+        {/* SEARCH RESULTS DROPDOWN */}
+        {activeSearchField && searchResults.length > 0 && (
+          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-2xl shadow-2xl mt-2 border border-slate-200 overflow-hidden max-h-64 overflow-y-auto">
+             {searchResults.map((result, idx) => (
+               <button 
+                 key={idx}
+                 onClick={() => handleSelectLocation(result)}
+                 className="w-full text-left p-4 hover:bg-emerald-50 flex items-center gap-3 border-b border-slate-100 last:border-0 transition"
+               >
+                 <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="w-5 h-5 text-slate-600" />
+                 </div>
+                 <div className="flex-1 min-w-0">
+                    <div className="font-bold text-base text-slate-800">{result.name}</div>
+                    <div className="text-sm text-slate-500 truncate">{result.full_name}</div>
+                 </div>
+               </button>
+             ))}
+          </div>
+        )}
+
+        {/* No results message */}
+        {activeSearchField && !isSearching && searchResults.length === 0 && (activeSearchField === 'pickup' ? pickupText : destination).length > 2 && (
+          <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-2xl shadow-xl mt-2 border border-slate-200 p-4 text-center">
+            <div className="text-slate-500 text-sm">No locations found. Try a different search.</div>
+          </div>
+        )}
       </div>
-      
-      {/* Share Ride Toggle */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 p-4 rounded-xl mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-purple-600" />
-            <span className="font-medium text-slate-800">Share This Ride</span>
+
+      {/* CARPOOL TOGGLE + SEAT SELECTOR */}
+      <div className={`p-4 rounded-xl border transition-all ${isCarpool ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-100'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isCarpool ? 'bg-purple-200' : 'bg-slate-100'}`}>
+              <Users className={`w-5 h-5 ${isCarpool ? 'text-purple-600' : 'text-slate-500'}`} />
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 text-sm">Carpool</div>
+              <div className="text-xs text-purple-600 font-medium">Save 30% • Share your ride</div>
+            </div>
           </div>
           <button 
-            onClick={() => { setShareRide(!shareRide); if (!shareRide && !shareCode) generateShareCode(); }}
-            className={`w-12 h-6 rounded-full transition-colors ${shareRide ? 'bg-purple-600' : 'bg-slate-300'}`}
+            onClick={() => {
+              setIsCarpool(!isCarpool);
+              if (!isCarpool) setSeatsBooked(1); // Reset seats when enabling
+            }}
+            className={`relative w-12 h-7 rounded-full transition-colors ${isCarpool ? 'bg-purple-600' : 'bg-slate-300'}`}
           >
-            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${shareRide ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${isCarpool ? 'left-6' : 'left-1'}`} />
           </button>
         </div>
         
-        {shareRide && (
-          <div className="mt-3 pt-3 border-t border-purple-200">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-purple-700">Save 40% by sharing!</span>
-              <span className="font-bold text-purple-600">KES {getSharedFare(selectedVehicle)} each</span>
-            </div>
-            
-            {/* Share Code */}
-            <div className="bg-white p-3 rounded-lg mb-2">
-              <div className="text-xs text-slate-500 mb-1">Your Share Code</div>
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold tracking-wider text-purple-700">{shareCode}</span>
-                <button 
-                  onClick={() => navigator.clipboard?.writeText(shareCode)}
-                  className="text-xs text-purple-600 font-medium px-3 py-1 bg-purple-50 rounded-full"
+        {/* Seat Selector - Only show when carpool is enabled */}
+        {isCarpool && (
+          <div className="mt-4 pt-4 border-t border-purple-200">
+            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">How many seats?</label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4].map(num => (
+                <button
+                  key={num}
+                  onClick={() => {
+                    setSeatsBooked(num);
+                    if (estimatedDistance > 0) {
+                      const fare = calculateFare(estimatedDistance, selectedVehicle, true, num);
+                      if (setEstimatedFare) setEstimatedFare(fare);
+                    }
+                  }}
+                  className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                    seatsBooked === num 
+                      ? 'bg-purple-600 text-white shadow-md' 
+                      : 'bg-white text-slate-700 border border-slate-200 hover:border-purple-300'
+                  }`}
                 >
-                  Copy
+                  {num}
                 </button>
-              </div>
+              ))}
             </div>
-            
-            {/* Join with Code */}
-            {!showJoinInput ? (
-              <button 
-                onClick={() => setShowJoinInput(true)}
-                className="text-xs text-purple-600 font-medium"
-              >
-                Or join someone else's ride →
-              </button>
-            ) : (
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  placeholder="Enter code..."
-                  maxLength={6}
-                  className="flex-1 p-2 bg-white border border-purple-200 rounded-lg text-sm uppercase tracking-wider"
-                />
-                <button className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium">
-                  Join
+            <p className="text-xs text-purple-600 mt-2 text-center font-medium">
+              {seatsBooked} seat{seatsBooked > 1 ? 's' : ''} × Fare per seat
+            </p>
+          </div>
+        )}
+
+        {/* Available Carpool Offers - Show when carpool is enabled */}
+        {isCarpool && availableOffers && availableOffers.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-purple-200">
+            <label className="text-xs font-bold text-purple-700 uppercase mb-2 block">Available Rides</label>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {availableOffers.map(offer => (
+                <button
+                  key={offer.id}
+                  onClick={() => bookCarpoolOffer(offer)}
+                  disabled={seatsBooked > offer.available_seats}
+                  className={`w-full p-3 rounded-xl border text-left transition ${
+                    seatsBooked <= offer.available_seats 
+                      ? 'bg-white hover:bg-purple-50 border-purple-200' 
+                      : 'bg-slate-100 border-slate-200 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">
+                        {offer.pickup_name} → {offer.dropoff_name}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {offer.driver?.full_name || 'Driver'} • {new Date(offer.departure_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-emerald-600">KES {offer.fare_per_seat * seatsBooked}</div>
+                      <div className="text-xs text-purple-600">{offer.available_seats} seats left</div>
+                    </div>
+                  </div>
                 </button>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
       </div>
-      
-      {/* Vehicle Options */}
-      <h4 className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wider">Choose a Ride</h4>
-      <div className="space-y-3 mb-4">
-        <VehicleOption 
-          name="Boda Boda" 
-          price={shareRide ? getSharedFare('boda') : getBaseFare('boda')} 
-          time="2 min" 
-          icon={Bike} 
-          selected={selectedVehicle === 'boda'} 
-          onClick={() => setSelectedVehicle('boda')}
-          shared={shareRide}
-        />
-        <VehicleOption 
-          name="TukTuk" 
-          price={shareRide ? getSharedFare('tuktuk') : getBaseFare('tuktuk')} 
-          time="5 min" 
-          icon={Zap} 
-          selected={selectedVehicle === 'tuktuk'} 
-          onClick={() => setSelectedVehicle('tuktuk')}
-          shared={shareRide}
-        />
-        <VehicleOption 
-          name="Taxi" 
-          price={shareRide ? getSharedFare('taxi') : getBaseFare('taxi')} 
-          time="7 min" 
-          icon={Car} 
-          selected={selectedVehicle === 'taxi'} 
-          onClick={() => setSelectedVehicle('taxi')}
-          shared={shareRide}
-        />
+
+      {/* VEHICLE SELECTION LIST */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Ride</h4>
+        {vehicles.map(v => {
+          const fare = estimatedDistance > 0 ? calculateFare(estimatedDistance, v.id, isCarpool) : 0;
+          const isSelected = selectedVehicle === v.id;
+          
+          return (
+            <button 
+              key={v.id}
+              onClick={() => {
+                setSelectedVehicle(v.id);
+                if (estimatedDistance > 0 && setEstimatedFare) {
+                    setEstimatedFare(calculateFare(estimatedDistance, v.id, isCarpool));
+                }
+              }}
+              className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+                isSelected 
+                ? 'border-emerald-500 bg-emerald-50 shadow-sm' 
+                : 'border-transparent bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-4">
+                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? 'bg-white text-emerald-600' : 'bg-white text-slate-500'}`}>
+                    <v.icon className="w-6 h-6" />
+                 </div>
+                 <div className="text-left">
+                    <div className={`font-bold text-sm ${isSelected ? 'text-emerald-900' : 'text-slate-900'}`}>{v.label}</div>
+                    <div className="text-xs text-slate-500">{v.desc}</div>
+                 </div>
+              </div>
+              <div className="text-right">
+                {fare > 0 ? (
+                  <>
+                     <div className="font-bold text-lg text-slate-900">KES {fare}</div>
+                     {isCarpool && <div className="text-[10px] text-purple-600 font-bold line-through opacity-60">KES {Math.round(fare / (1 - CARPOOL_DISCOUNT))}</div>}
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-400 font-medium">--</div>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
-      
-      {/* Payment Row */}
-      <div className="flex items-center justify-between mb-4 px-1">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-          <div className="w-6 h-4 bg-green-600 rounded-sm" />
-          {isCorporate ? 'Paid by Company' : 'M-Pesa'}
-        </div>
-        <div className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded">
-          +{shareRide ? 20 : 15} Loyalty Pts
-        </div>
-      </div>
-      
-      {/* Confirm Button */}
+
+      {/* CONFIRM BUTTON */}
       <button 
-        onClick={handleRequestRide} 
-        disabled={!destination || isRequestingRide} 
-        className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition disabled:opacity-50"
+        onClick={() => {
+          // Final check before requesting
+          if (estimatedDistance > 0) {
+             const finalFare = calculateFare(estimatedDistance, selectedVehicle, isCarpool);
+             if (setEstimatedFare) setEstimatedFare(finalFare);
+             handleRequestRide();
+          }
+        }}
+        disabled={estimatedDistance <= 0 || isRequestingRide}
+        className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
-        {isRequestingRide ? 'Requesting...' : (
-          shareRide 
-            ? `Share ${selectedVehicle === 'boda' ? 'Boda' : selectedVehicle === 'tuktuk' ? 'TukTuk' : 'Taxi'} • KES ${getSharedFare(selectedVehicle)}`
-            : `Confirm ${selectedVehicle === 'boda' ? 'Boda' : selectedVehicle === 'tuktuk' ? 'TukTuk' : 'Taxi'}`
-        )}
+        {isRequestingRide ? <Loader2 className="w-6 h-6 animate-spin" /> : <span>Confirm {vehicles.find(v => v.id === selectedVehicle)?.label}</span>}
       </button>
     </div>
   );
@@ -826,6 +1671,81 @@ function RewardItem({ title, points, available }) {
     <div className={`flex items-center justify-between p-4 rounded-xl ${available ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50'}`}>
       <div className="flex items-center gap-3"><Gift className={`w-5 h-5 ${available ? 'text-emerald-600' : 'text-slate-400'}`} /><span className={`font-medium ${available ? 'text-slate-900' : 'text-slate-500'}`}>{title}</span></div>
       <div className="text-right"><span className={`text-sm font-bold ${available ? 'text-emerald-600' : 'text-slate-400'}`}>{points} pts</span>{available && <button className="block text-xs text-emerald-600 font-medium mt-0.5">Redeem →</button>}</div>
+    </div>
+  );
+}
+
+// SaveLocationForm Component - For setting home/work locations
+function SaveLocationForm({ type, onSave, onCancel }) {
+  const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    if (searchText.length < 3) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const results = await searchLocation(searchText);
+      setSearchResults(results);
+      setIsSearching(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs font-bold text-slate-500 uppercase block mb-2">
+          Search for {type === 'home' ? 'home' : 'work'} address
+        </label>
+        <input
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder={`Enter your ${type} address...`}
+          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          autoFocus
+        />
+      </div>
+
+      {isSearching && (
+        <div className="text-center py-4">
+          <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-400" />
+        </div>
+      )}
+
+      {searchResults.length > 0 && (
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {searchResults.map((result, idx) => (
+            <button
+              key={idx}
+              onClick={() => onSave({
+                name: result.full_name,
+                lat: result.lat,
+                lng: result.lng
+              })}
+              className="w-full p-3 bg-slate-50 hover:bg-emerald-50 rounded-xl text-left transition border border-transparent hover:border-emerald-200"
+            >
+              <div className="font-medium text-slate-900">{result.name}</div>
+              <div className="text-xs text-slate-500 truncate">{result.full_name}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

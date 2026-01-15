@@ -92,6 +92,44 @@ export const useAuthStore = create((set, get) => ({
         return { error };
       }
 
+      // Set user immediately to allow navigation
+      if (data?.user) {
+        set({ user: data.user, loading: false });
+
+        // Fetch profile in background with 3s timeout
+        const profilePromise = supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single();
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Profile fetch timeout")), 3000)
+        );
+
+        try {
+          const { data: profileData } = await Promise.race([
+            profilePromise,
+            timeoutPromise,
+          ]);
+          if (profileData) {
+            set({ profile: profileData });
+            console.log("Profile loaded:", profileData);
+          }
+        } catch (profileErr) {
+          console.log("Using fallback profile from metadata");
+          // Use user metadata as fallback
+          const fallbackProfile = {
+            id: data.user.id,
+            full_name:
+              data.user.user_metadata?.full_name || email.split("@")[0],
+            phone: data.user.user_metadata?.phone || "",
+            role: data.user.user_metadata?.role || "passenger",
+          };
+          set({ profile: fallbackProfile });
+        }
+      }
+
       return { data };
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -123,9 +161,25 @@ export const useAuthStore = create((set, get) => ({
         return { error: authError };
       }
 
-      // 2. We depend on a Supabase Trigger to create the profile usually,
-      // but we can optimistic update or handle additional logic here if needed.
-      // For now, assume trigger handles public.profiles creation.
+      // 2. Profile is created by Supabase trigger
+      // 3. If role is 'driver', auto-create driver record (no approval needed)
+      if (role === "driver" && authData?.user?.id) {
+        const { error: driverError } = await supabase.from("drivers").upsert(
+          {
+            id: authData.user.id,
+            vehicle_type: "boda", // Default vehicle
+            is_online: false,
+          },
+          { onConflict: "id" }
+        );
+
+        if (driverError) {
+          console.error("Error auto-creating driver record:", driverError);
+          // Don't fail signup, driver can be created later
+        } else {
+          console.log("Driver record auto-created successfully");
+        }
+      }
 
       set({ loading: false });
       return { data: authData };
