@@ -1,7 +1,7 @@
 // src/features/passenger/PassengerHome.jsx
 import { useState, useEffect } from 'react';
 import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight, Home, Briefcase } from 'lucide-react';
-import { supabase } from '../../services/supabase';
+import { supabase, isAbortError } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import Map from '../../components/ui/Map';
@@ -135,7 +135,9 @@ export default function PassengerHome() {
           .single();
         
         if (error) {
-          console.error('Profile fetch error:', error.message);
+          if (!isAbortError(error)) {
+            console.error('Profile fetch error:', error.message);
+          }
           // Fallback: use user metadata if profile fetch fails
           if (user.user_metadata) {
             const fallbackProfile = {
@@ -232,7 +234,9 @@ export default function PassengerHome() {
       }
 
       if (error) {
-        console.error('Error fetching carpool offers:', error);
+        if (!isAbortError(error)) {
+          console.error('Error fetching carpool offers:', error);
+        }
         setAvailableOffers([]);
         return;
       }
@@ -245,7 +249,9 @@ export default function PassengerHome() {
       });
       setAvailableOffers(validOffers);
     } catch (error) {
-      console.error('Error fetching carpool offers:', error);
+      if (!isAbortError(error)) {
+        console.error('Error fetching carpool offers:', error);
+      }
       setAvailableOffers([]);
     }
   };
@@ -289,7 +295,9 @@ export default function PassengerHome() {
           .limit(10);
         
         if (error) {
-          console.error('Error fetching notifications:', error);
+          if (!isAbortError(error)) {
+            console.error('Error fetching notifications:', error);
+          }
           return;
         }
         if (data) setNotifications(data);

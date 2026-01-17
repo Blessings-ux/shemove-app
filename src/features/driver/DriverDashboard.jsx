@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, Star, Settings, Moon, Globe, ChevronRight, ArrowLeft, LogOut, RefreshCw } from 'lucide-react';
-import { supabase } from '../../services/supabase';
+import { supabase, isAbortError } from '../../services/supabase';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useAuthStore } from '../../store/authStore';
 import { reverseGeocode } from '../../services/geocoding';
@@ -63,52 +63,73 @@ export default function DriverDashboard() {
   // Keep screen awake
   useWakeLock(); 
 
-  // Fetch driver data on mount - run in parallel, don't block
+  // Consolidated data fetching
   useEffect(() => {
-    if (user) {
-      // Fetch all data in parallel
-      Promise.all([
-        fetchDriverData(),
-        fetchTodayEarnings(),
-        fetchActiveRides()
-      ]).catch(err => console.error('Error loading data:', err));
-    } else {
+    if (!user) {
       setIsLoading(false);
+      return;
     }
-  }, [user]);
 
-  // Fetch profile if not loaded
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (user && !profile) {
-        console.log('Fetching driver profile for:', user.id);
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        
-        if (error) {
-          console.error('Driver profile fetch error:', error.message);
-          // Fallback to user metadata
-          if (user.user_metadata) {
-            const fallbackProfile = {
-              id: user.id,
-              full_name: user.user_metadata.full_name || user.email?.split('@')[0] || 'Driver',
-              phone: user.user_metadata.phone || '',
-              role: user.user_metadata.role || 'driver'
-            };
-            useAuthStore.setState({ profile: fallbackProfile });
-            console.log('Using fallback driver profile:', fallbackProfile);
-          }
-        } else if (data) {
-          useAuthStore.setState({ profile: data });
-          console.log('Driver profile loaded:', data);
+    const loadDashboardData = async () => {
+      setIsLoading(true);
+      console.log('⚡ Loading dashboard data...');
+      
+      try {
+        // 1. Fetch Profile (if needed) & Driver Data & Rides in PARALLEL
+        const promises = [
+          !profile ? supabase.from('profiles').select('*').eq('id', user.id).single() : Promise.resolve({ data: profile }),
+          supabase.from('drivers').select('*').eq('id', user.id).single(),
+          supabase.from('rides').select('*').or(`driver_id.eq.${user.id},and(status.eq.pending)`).order('created_at', { ascending: false }).limit(20),
+          supabase.from('rides').select('fare').eq('driver_id', user.id).eq('status', 'completed').gte('created_at', new Date().setHours(0,0,0,0) / 1000) // Today's earnings roughly
+        ];
+
+        const [profileRes, driverRes, ridesRes, earningsRes] = await Promise.all(promises);
+
+        // Update Profile Store if fetched
+        if (!profile && profileRes.data) {
+          useAuthStore.setState({ profile: profileRes.data });
         }
+
+        // Handle Driver Data
+        if (driverRes.data) {
+          setDriverData(driverRes.data);
+          setIsOnline(driverRes.data.is_online);
+        } else if (driverRes.error?.code === 'PGRST116') {
+          // Auto-create driver record if missing
+          const { data: newDriver } = await supabase
+            .from('drivers')
+            .insert({ id: user.id, vehicle_type: 'boda', is_online: false })
+            .select()
+            .single();
+          if (newDriver) setDriverData(newDriver);
+        }
+
+        // Handle Rides
+        if (ridesRes.data) {
+          // Filter active rides (accepted/in_progress)
+          const active = ridesRes.data.filter(r => 
+            r.driver_id === user.id && ['accepted', 'in_progress', 'arrived'].includes(r.status)
+          );
+          setActiveRides(active);
+        }
+
+        // Handle Earnings (This is a quick approximation, better to use RPC for exacts)
+        if (earningsRes.data) {
+          const total = earningsRes.data.reduce((sum, r) => sum + (r.fare || 0), 0);
+          setTodayEarnings(total);
+        }
+
+      } catch (err) {
+        if (!isAbortError(err)) {
+          console.error('Data load error:', err);
+        }
+      } finally {
+        setIsLoading(false);
       }
     };
-    fetchProfile();
-  }, [user, profile]);
+
+    loadDashboardData();
+  }, [user]); // Only run on user change (mount)
 
   // Subscribe to ride requests when online
   // Allow subscription even with active rides IF they are shared
@@ -257,8 +278,10 @@ export default function DriverDashboard() {
         }, { onConflict: 'id' });
       
       if (upsertError) {
-        console.error('Error creating/updating driver:', upsertError);
-        alert(`Could not go online: ${upsertError.message}`);
+        if (!isAbortError(upsertError)) {
+          console.error('Error creating/updating driver:', upsertError);
+          alert(`Could not go online: ${upsertError.message}`);
+        }
         return;
       }
       
@@ -510,8 +533,10 @@ export default function DriverDashboard() {
         .single();
 
       if (error) {
-        console.error('Supabase error:', error);
-        alert(`Failed to create offer: ${error.message}`);
+        if (!isAbortError(error)) {
+          console.error('Supabase error:', error);
+          alert(`Failed to create offer: ${error.message}`);
+        }
         return;
       }
 
@@ -595,7 +620,9 @@ export default function DriverDashboard() {
           .limit(10);
         
         if (error) {
-          console.error('Error fetching notifications:', error);
+          if (!isAbortError(error)) {
+            console.error('Error fetching notifications:', error);
+          }
           return;
         }
         if (data) setNotifications(data);
