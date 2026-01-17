@@ -1,5 +1,6 @@
 // M-Pesa Payment Modal Component
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Phone, CheckCircle, XCircle, Loader2, Smartphone } from 'lucide-react';
 import { initiateMpesaPayment, pollPaymentStatus } from '../../services/mpesa';
 
@@ -75,12 +76,17 @@ export default function MpesaPaymentModal({
     }
   };
 
-  if (!isOpen) return null;
+  // Debug log before any returns
+  console.log('MpesaPaymentModal: Props received', { isOpen, amount, step });
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={step === 'input' || step === 'success' || step === 'failed' ? onClose : undefined} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+  if (!isOpen) return null;
+  
+  console.log('MpesaPaymentModal: Rendering', { amount, rideId });
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 font-sans">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={step === 'input' || step === 'success' || step === 'failed' ? onClose : undefined} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="bg-emerald-600 p-6 text-white">
@@ -213,6 +219,7 @@ export default function MpesaPaymentModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -5,12 +5,15 @@ import { supabase, isAbortError } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import Map from '../../components/ui/Map';
+import MpesaPaymentModal from '../../components/payment/MpesaPaymentModal';
 import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
 import { searchLocation, reverseGeocode } from '../../services/geocoding';
 
 import { getRoute } from '../../services/routing';
 
 export default function PassengerHome() {
+  // Debug log
+  console.log('PassengerHome Render');
   const navigate = useNavigate();
   const { profile, user } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -28,6 +31,7 @@ export default function PassengerHome() {
   const [isCarpool, setIsCarpool] = useState(false);
   const [seatsBooked, setSeatsBooked] = useState(1);
   const [rideHistory, setRideHistory] = useState([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -740,6 +744,7 @@ export default function PassengerHome() {
               setShowSaveLocationModal={setShowSaveLocationModal}
               carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
               setPickupLocation={setPickupLocation}
+              setShowPaymentModal={setShowPaymentModal}
             />
           </div>
           {/* Safe area for iOS */}
@@ -822,6 +827,7 @@ export default function PassengerHome() {
                 setShowSaveLocationModal={setShowSaveLocationModal}
                 carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
                 setPickupLocation={setPickupLocation}
+                setShowPaymentModal={setShowPaymentModal}
               />
             )}
           </div>
@@ -875,6 +881,19 @@ export default function PassengerHome() {
           </div>
         </div>
       )}
+      
+      {/* Payment Modal - Portal Renders at Body Level */}
+      <MpesaPaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        amount={currentRide?.fare || 0}
+        phoneNumber={user?.user_metadata?.phone || ''}
+        rideId={currentRide?.id}
+        onPaymentSuccess={() => {
+          setShowPaymentModal(false);
+          alert('Payment Successful!');
+        }}
+      />
     </div>
   );
 }
@@ -890,7 +909,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -1153,6 +1172,16 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           <span className="text-slate-500">Estimated fare</span>
           <span className="font-bold text-slate-900 text-lg">KES {currentRide?.fare || getFare(selectedVehicle)}</span>
         </div>
+        <button 
+          onClick={() => {
+            console.log('Payment Button Clicked'); 
+            setShowPaymentModal(true);
+          }}
+          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition active:scale-[0.98] mb-3 flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"
+        >
+          <CreditCard className="w-5 h-5" />
+          Pay with M-Pesa
+        </button>
         <button onClick={handleCancelRide} className="w-full py-4 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition active:scale-[0.98]">
           Cancel Ride
         </button>
