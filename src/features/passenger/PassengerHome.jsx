@@ -1,16 +1,19 @@
 // src/features/passenger/PassengerHome.jsx
 import { useState, useEffect } from 'react';
 import { MapPin, Menu, History, Star, CreditCard, User, LogOut, Navigation, Bike, Car, Zap, X, Loader2, Phone, ArrowLeft, Gift, CheckCircle, Save, Users, Settings, Bell, Moon, Globe, Shield, ChevronRight, Home, Briefcase } from 'lucide-react';
-import { supabase } from '../../services/supabase';
+import { supabase, isAbortError } from '../../services/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import Map from '../../components/ui/Map';
+import MpesaPaymentModal from '../../components/payment/MpesaPaymentModal';
 import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_FARES, CARPOOL_DISCOUNT } from '../../utils/pricing';
 import { searchLocation, reverseGeocode } from '../../services/geocoding';
 
 import { getRoute } from '../../services/routing';
 
 export default function PassengerHome() {
+  // Debug log
+  console.log('PassengerHome Render');
   const navigate = useNavigate();
   const { profile, user } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -28,6 +31,7 @@ export default function PassengerHome() {
   const [isCarpool, setIsCarpool] = useState(false);
   const [seatsBooked, setSeatsBooked] = useState(1);
   const [rideHistory, setRideHistory] = useState([]);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -135,7 +139,9 @@ export default function PassengerHome() {
           .single();
         
         if (error) {
-          console.error('Profile fetch error:', error.message);
+          if (!isAbortError(error)) {
+            console.error('Profile fetch error:', error.message);
+          }
           // Fallback: use user metadata if profile fetch fails
           if (user.user_metadata) {
             const fallbackProfile = {
@@ -232,7 +238,9 @@ export default function PassengerHome() {
       }
 
       if (error) {
-        console.error('Error fetching carpool offers:', error);
+        if (!isAbortError(error)) {
+          console.error('Error fetching carpool offers:', error);
+        }
         setAvailableOffers([]);
         return;
       }
@@ -245,7 +253,9 @@ export default function PassengerHome() {
       });
       setAvailableOffers(validOffers);
     } catch (error) {
-      console.error('Error fetching carpool offers:', error);
+      if (!isAbortError(error)) {
+        console.error('Error fetching carpool offers:', error);
+      }
       setAvailableOffers([]);
     }
   };
@@ -280,13 +290,24 @@ export default function PassengerHome() {
     if (!user) return;
 
     const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (data) setNotifications(data);
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        
+        if (error) {
+          if (!isAbortError(error)) {
+            console.error('Error fetching notifications:', error);
+          }
+          return;
+        }
+        if (data) setNotifications(data);
+      } catch (err) {
+        console.error('Notifications fetch failed:', err);
+      }
     };
 
     fetchNotifications();
@@ -320,18 +341,31 @@ export default function PassengerHome() {
     setBookingStep('matched');
 
     try {
-      // Fetch driver info
-      const { data: driverData } = await supabase
-        .from('profiles')
-        .select('full_name, phone')
-        .eq('id', offer.driver_id)
-        .single();
+      // Fetch driver info - may fail due to RLS, so use fallback
+      let driverData = null;
+      let driverVehicle = null;
+      
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('full_name, phone')
+          .eq('id', offer.driver_id)
+          .single();
+        driverData = data;
+      } catch (err) {
+        console.log('Could not fetch driver profile, using offer data');
+      }
 
-      const { data: driverVehicle } = await supabase
-        .from('drivers')
-        .select('vehicle_type, plate_number')
-        .eq('id', offer.driver_id)
-        .single();
+      try {
+        const { data } = await supabase
+          .from('drivers')
+          .select('vehicle_type, plate_number')
+          .eq('id', offer.driver_id)
+          .single();
+        driverVehicle = data;
+      } catch (err) {
+        console.log('Could not fetch driver vehicle info');
+      }
 
       // Create ride linked to the offer - status is already 'accepted'
       const { data: ride, error: rideError } = await supabase.from('rides').insert({
@@ -377,13 +411,17 @@ export default function PassengerHome() {
       console.log('Carpool booked instantly! Connected to driver:', driverData?.full_name);
       
       // Also create a notification record (driver will see this via subscription)
-      await supabase.from('notifications').insert({
-        user_id: offer.driver_id,
-        type: 'carpool_booking',
-        title: 'New Carpool Passenger!',
-        message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
-        data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
-      }).catch(err => console.log('Notification insert skipped:', err.message));
+      try {
+        await supabase.from('notifications').insert({
+          user_id: offer.driver_id,
+          type: 'carpool_booking',
+          title: 'New Carpool Passenger!',
+          message: `${profile?.full_name || 'A passenger'} booked ${seatsBooked} seat(s) on your ${offer.pickup_name} → ${offer.dropoff_name} ride`,
+          data: { ride_id: ride.id, offer_id: offer.id, seats: seatsBooked }
+        });
+      } catch (notifErr) {
+        console.log('Notification insert skipped:', notifErr);
+      }
     } catch (error) {
       console.error('Error booking carpool:', error);
       alert('Failed to book carpool. Please try again.');
@@ -618,14 +656,44 @@ export default function PassengerHome() {
             <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
               <div className="p-3 border-b border-slate-100 flex items-center justify-between">
                 <h4 className="font-bold text-slate-800">Notifications</h4>
-                <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
-                  <X className="w-4 h-4 text-slate-500" />
-                </button>
+                <div className="flex gap-2">
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <button 
+                      onClick={async () => {
+                        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+                        if (unreadIds.length > 0) {
+                          await supabase
+                            .from('notifications')
+                            .update({ read: true })
+                            .in('id', unreadIds);
+                          setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                        }
+                      }}
+                      className="text-xs text-emerald-600 font-bold hover:underline"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
+                    <X className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
               </div>
               {notifications.length > 0 ? (
                 <div className="divide-y divide-slate-100">
                   {notifications.map(n => (
-                    <div key={n.id} className={`p-3 ${!n.read ? 'bg-emerald-50' : ''}`}>
+                    <div 
+                      key={n.id} 
+                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-emerald-50' : ''}`}
+                      onClick={async () => {
+                        if (!n.read) {
+                          await supabase.from('notifications').update({ read: true }).eq('id', n.id);
+                          setNotifications(prev => prev.map(notif => 
+                            notif.id === n.id ? { ...notif, read: true } : notif
+                          ));
+                        }
+                      }}
+                    >
                       <div className="font-medium text-slate-800 text-sm">{n.title}</div>
                       <div className="text-xs text-slate-500 mt-1">{n.message}</div>
                       <div className="text-xs text-slate-400 mt-1">
@@ -676,6 +744,7 @@ export default function PassengerHome() {
               setShowSaveLocationModal={setShowSaveLocationModal}
               carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
               setPickupLocation={setPickupLocation}
+              setShowPaymentModal={setShowPaymentModal}
             />
           </div>
           {/* Safe area for iOS */}
@@ -758,6 +827,7 @@ export default function PassengerHome() {
                 setShowSaveLocationModal={setShowSaveLocationModal}
                 carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
                 setPickupLocation={setPickupLocation}
+                setShowPaymentModal={setShowPaymentModal}
               />
             )}
           </div>
@@ -811,6 +881,19 @@ export default function PassengerHome() {
           </div>
         </div>
       )}
+      
+      {/* Payment Modal - Portal Renders at Body Level */}
+      <MpesaPaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        amount={currentRide?.fare || 0}
+        phoneNumber={user?.user_metadata?.phone || ''}
+        rideId={currentRide?.id}
+        onPaymentSuccess={() => {
+          setShowPaymentModal(false);
+          alert('Payment Successful!');
+        }}
+      />
     </div>
   );
 }
@@ -826,7 +909,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -1089,6 +1172,16 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           <span className="text-slate-500">Estimated fare</span>
           <span className="font-bold text-slate-900 text-lg">KES {currentRide?.fare || getFare(selectedVehicle)}</span>
         </div>
+        <button 
+          onClick={() => {
+            console.log('Payment Button Clicked'); 
+            setShowPaymentModal(true);
+          }}
+          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition active:scale-[0.98] mb-3 flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"
+        >
+          <CreditCard className="w-5 h-5" />
+          Pay with M-Pesa
+        </button>
         <button onClick={handleCancelRide} className="w-full py-4 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition active:scale-[0.98]">
           Cancel Ride
         </button>
@@ -1555,34 +1648,6 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
             </div>
             <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.notifications ? 'bg-emerald-500' : 'bg-slate-300'}`}>
               <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.notifications ? 'right-1' : 'left-1'}`} />
-            </div>
-          </button>
-
-          <button 
-            onClick={() => setAppSettings(prev => ({ ...prev, darkMode: !prev.darkMode }))}
-            className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2"
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center shadow-sm transition-colors ${appSettings.darkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}>
-                <Moon className="w-5 h-5" />
-              </div>
-              <span className="font-medium text-slate-700">Dark Mode</span>
-            </div>
-            <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.darkMode ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.darkMode ? 'right-1' : 'left-1'}`} />
-            </div>
-          </button>
-
-          <button 
-            onClick={() => setAppSettings(prev => ({ ...prev, language: prev.language === 'English' ? 'Swahili' : 'English' }))}
-            className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm"><Globe className="w-5 h-5" /></div>
-              <span className="font-medium text-slate-700">Language</span>
-            </div>
-            <div className="flex items-center gap-2 text-slate-500 text-sm">
-              {appSettings.language} <ChevronRight className="w-4 h-4" />
             </div>
           </button>
         </div>

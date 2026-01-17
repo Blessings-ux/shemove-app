@@ -227,39 +227,89 @@ const LandingPage = () => {
       </section>
 
       {/* Fleet Owner Section */}
-      <section id="fleet" className="py-12 sm:py-20 bg-gray-900 text-white">
+      <section id="fleet" className="py-12 sm:py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8 sm:mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">For Fleet Owners</h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              Own multiple vehicles? Manage your entire fleet from one powerful dashboard.
+            </p>
+          </div>
+          
           <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             <div className="order-2 lg:order-1">
-              <img 
-                src="/assets/dashboard-graph.png" 
-                alt="Fleet Dashboard" 
-                className="w-full rounded-xl sm:rounded-2xl shadow-2xl border border-gray-800"
-              />
+              <div className="bg-white rounded-xl sm:rounded-2xl p-6 shadow-lg border border-gray-200">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-3 h-3 bg-red-400 rounded-full"></div>
+                  <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
+                  <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                  <span className="text-gray-500 text-sm ml-2">Fleet Dashboard</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                    <div className="text-gray-500 text-xs mb-1">Weekly Revenue</div>
+                    <div className="text-2xl font-bold text-emerald-600">KES 127,500</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <div className="text-gray-500 text-xs mb-1">Active Drivers</div>
+                    <div className="text-2xl font-bold text-gray-900">8 <span className="text-sm text-gray-400">/ 12</span></div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center text-sm font-bold text-white">J</div>
+                      <div>
+                        <div className="font-medium text-sm text-gray-900">John Kamau</div>
+                        <div className="text-xs text-gray-500">KBC 234E • Bodaboda</div>
+                      </div>
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded-full font-medium">Online</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm font-bold text-white">M</div>
+                      <div>
+                        <div className="font-medium text-sm text-gray-900">Mary Wanjiku</div>
+                        <div className="text-xs text-gray-500">KBD 567F • Car</div>
+                      </div>
+                    </div>
+                    <span className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full font-medium">Offline</span>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="order-1 lg:order-2 text-center lg:text-left">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 sm:mb-6">Manage your fleet effortlessly.</h2>
-              <p className="text-gray-400 text-base sm:text-lg mb-6 sm:mb-8">
-                Designed for fleet owners who want total control. Track your vehicles in real-time, 
-                monitor driver performance, and view detailed revenue analytics from a single dashboard.
+              <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 mb-4 sm:mb-6">Manage your fleet effortlessly.</h3>
+              <p className="text-gray-600 text-base sm:text-lg mb-6 sm:mb-8">
+                Track your drivers in real-time, monitor daily earnings, and grow your transport business with powerful analytics.
               </p>
               <ul className="space-y-3 sm:space-y-4 mb-6 sm:mb-8 inline-block text-left">
-                <li className="flex items-center text-gray-300 text-sm sm:text-base">
+                <li className="flex items-center text-gray-700 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Real-time vehicle tracking
+                  Real-time vehicle tracking & status
                 </li>
-                <li className="flex items-center text-gray-300 text-sm sm:text-base">
+                <li className="flex items-center text-gray-700 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Automated revenue reports
+                  Automated weekly revenue reports
                 </li>
-                <li className="flex items-center text-gray-300 text-sm sm:text-base">
+                <li className="flex items-center text-gray-700 text-sm sm:text-base">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
-                  Driver performance metrics
+                  Add or suspend drivers instantly
+                </li>
+                <li className="flex items-center text-gray-700 text-sm sm:text-base">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3"></div>
+                  No monthly fees - just results
                 </li>
               </ul>
-              <button className="text-emerald-400 font-semibold hover:text-emerald-300 flex items-center transition-colors mx-auto lg:mx-0">
-                Learn about Fleet Management <ChevronRight className="w-4 h-4 ml-1" />
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                <Link to="/signup" className="inline-flex items-center justify-center bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors">
+                  Register as Fleet Owner <ChevronRight className="w-4 h-4 ml-1" />
+                </Link>
+                <Link to="/login" className="inline-flex items-center justify-center border border-gray-300 text-gray-700 px-6 py-3 rounded-xl font-medium hover:bg-gray-100 transition-colors">
+                  Fleet Owner Login
+                </Link>
+              </div>
             </div>
           </div>
         </div>
