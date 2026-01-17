@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { supabase } from '../../services/supabase';
+import { supabase, isAbortError } from '../../services/supabase';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 
@@ -43,7 +43,9 @@ export default function Login() {
         .single();
 
       if (profileError) {
-        console.error('Error fetching profile:', profileError);
+        if (!isAbortError(profileError)) {
+          console.error('Error fetching profile:', profileError);
+        }
       }
 
       const role = profileData?.role || 'passenger';
@@ -62,6 +64,9 @@ export default function Login() {
           break;
         case 'driver':
           navigate('/driver');
+          break;
+        case 'fleet_owner':
+          navigate('/fleet');
           break;
         default:
           navigate('/passenger');
