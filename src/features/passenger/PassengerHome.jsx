@@ -119,12 +119,26 @@ export default function PassengerHome() {
       if (pickupLocation && dropoffLocation) {
         const coords = await getRoute(pickupLocation, dropoffLocation);
         if (coords) setRouteCoordinates(coords);
+        
+        // Auto-calculate distance and fare
+        const dist = calculateDistance(pickupLocation.lat, pickupLocation.lng, dropoffLocation.lat, dropoffLocation.lng);
+        setEstimatedDistance(dist);
+        setEstimatedFare(calculateFare(dist, selectedVehicle)); // Note: IsCarpool updates handle their own fare calc usually, but this is a safe baseline
       } else {
         setRouteCoordinates([]);
+        setEstimatedDistance(0);
+        setEstimatedFare(0);
       }
     };
     fetchRoute();
-  }, [pickupLocation, dropoffLocation]);
+  }, [pickupLocation, dropoffLocation]); // Keep dependencies simple to avoid loops, vehicle change handled elsewhere or can be added
+
+  // React to vehicle change to update fare
+  useEffect(() => {
+    if (estimatedDistance > 0) {
+      setEstimatedFare(calculateFare(estimatedDistance, selectedVehicle, isCarpool, seatsBooked));
+    }
+  }, [selectedVehicle, isCarpool, seatsBooked, estimatedDistance]);
 
   // Fetch profile on mount if not loaded
   useEffect(() => {
@@ -632,7 +646,7 @@ export default function PassengerHome() {
             {/* Notification & Settings Buttons */}
             <div className="flex gap-2">
               <button 
-                onClick={() => setShowNotifications(!showNotifications)}
+                onClick={() => openPanel('notifications')}
                 className="bg-white p-3 rounded-2xl shadow-lg hover:bg-slate-50 transition active:scale-95 border border-slate-200/50 text-slate-700 relative"
               >
                 <Bell className="w-5 h-5" />
@@ -651,64 +665,7 @@ export default function PassengerHome() {
             </div>
           </div>
 
-          {/* Notification Dropdown */}
-          {showNotifications && (
-            <div className="mt-3 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-80 overflow-y-auto">
-              <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-                <h4 className="font-bold text-slate-800">Notifications</h4>
-                <div className="flex gap-2">
-                  {notifications.filter(n => !n.read).length > 0 && (
-                    <button 
-                      onClick={async () => {
-                        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
-                        if (unreadIds.length > 0) {
-                          await supabase
-                            .from('notifications')
-                            .update({ read: true })
-                            .in('id', unreadIds);
-                          setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-                        }
-                      }}
-                      className="text-xs text-emerald-600 font-bold hover:underline"
-                    >
-                      Mark all read
-                    </button>
-                  )}
-                  <button onClick={() => setShowNotifications(false)} className="p-1 hover:bg-slate-100 rounded-full">
-                    <X className="w-4 h-4 text-slate-500" />
-                  </button>
-                </div>
-              </div>
-              {notifications.length > 0 ? (
-                <div className="divide-y divide-slate-100">
-                  {notifications.map(n => (
-                    <div 
-                      key={n.id} 
-                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-emerald-50' : ''}`}
-                      onClick={async () => {
-                        if (!n.read) {
-                          await supabase.from('notifications').update({ read: true }).eq('id', n.id);
-                          setNotifications(prev => prev.map(notif => 
-                            notif.id === n.id ? { ...notif, read: true } : notif
-                          ));
-                        }
-                      }}
-                    >
-                      <div className="font-medium text-slate-800 text-sm">{n.title}</div>
-                      <div className="text-xs text-slate-500 mt-1">{n.message}</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        {new Date(n.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-6 text-center text-slate-500 text-sm">
-                  No notifications yet
-                </div>
-              )}
-            </div>
-          )}
+
         </div>
         
         {/* TOP HALF: Map (with padding for fixed header) */}
@@ -789,6 +746,7 @@ export default function PassengerHome() {
             
             {/* Quick Actions */}
             <div className="flex gap-2">
+              <QuickAction icon={Bell} label="Inbox" onClick={() => openPanel('notifications')} badge={notifications.filter(n => !n.read).length || null} />
               <QuickAction icon={History} label="Rides" onClick={() => openPanel('rides')} />
               <QuickAction icon={CreditCard} label="Pay" onClick={() => openPanel('payment')} />
               <QuickAction icon={Gift} label="Rewards" onClick={() => openPanel('loyalty')} />
@@ -806,6 +764,7 @@ export default function PassengerHome() {
                 user={user} profileForm={profileForm} setProfileForm={setProfileForm}
                 handleSaveProfile={handleSaveProfile} isSavingProfile={isSavingProfile}
                 appSettings={appSettings} setAppSettings={setAppSettings}
+                notifications={notifications} setNotifications={setNotifications}
               />
             ) : (
               <BookingPanel 
@@ -853,6 +812,7 @@ export default function PassengerHome() {
           <p className="text-emerald-100 text-xs">{userPhone}</p>
         </div>
         <nav className="p-3 space-y-1">
+          <MenuItem icon={Bell} label="Notifications" badge={notifications.filter(n => !n.read).length || null} onClick={() => openPanel('notifications')} />
           <MenuItem icon={History} label="Your Rides" onClick={() => openPanel('rides')} />
           <MenuItem icon={CreditCard} label="Payment Methods" subtitle="M-Pesa Active" onClick={() => openPanel('payment')} />
           <MenuItem icon={Star} label="Loyalty Rewards" badge={userPoints > 100 ? "Redeem" : null} onClick={() => openPanel('loyalty')} />
@@ -869,7 +829,7 @@ export default function PassengerHome() {
         <div className="lg:hidden fixed inset-0 z-[2000] bg-white overflow-y-auto">
           <div className="sticky top-0 bg-white border-b border-slate-100 p-4 flex items-center gap-4">
             <button onClick={() => setActivePanel(null)} className="p-2 -ml-2 hover:bg-slate-100 rounded-full transition"><ArrowLeft className="w-5 h-5 text-slate-700" /></button>
-            <h2 className="text-lg font-bold text-slate-900">{activePanel === 'rides' ? 'Your Rides' : activePanel === 'payment' ? 'Payment Methods' : activePanel === 'loyalty' ? 'Loyalty Rewards' : 'Profile Settings'}</h2>
+            <h2 className="text-lg font-bold text-slate-900">{activePanel === 'rides' ? 'Your Rides' : activePanel === 'payment' ? 'Payment Methods' : activePanel === 'loyalty' ? 'Loyalty Rewards' : activePanel === 'notifications' ? 'Notifications' : 'Profile Settings'}</h2>
           </div>
           <div className="p-4">
             <PanelContent activePanel={activePanel} isLoadingHistory={isLoadingHistory} rideHistory={rideHistory}
@@ -877,6 +837,7 @@ export default function PassengerHome() {
               user={user} profileForm={profileForm} setProfileForm={setProfileForm}
               handleSaveProfile={handleSaveProfile} isSavingProfile={isSavingProfile}
               appSettings={appSettings} setAppSettings={setAppSettings}
+              notifications={notifications} setNotifications={setNotifications}
             />
           </div>
         </div>
@@ -900,10 +861,17 @@ export default function PassengerHome() {
 
 // === COMPONENTS ===
 
-function QuickAction({ icon: Icon, label, onClick }) {
+function QuickAction({ icon: Icon, label, onClick, badge }) {
   return (
-    <button onClick={onClick} className="flex-1 flex flex-col items-center gap-1 p-2 bg-white/10 rounded-xl hover:bg-white/20 transition">
-      <Icon className="w-5 h-5" />
+    <button onClick={onClick} className="flex-1 flex flex-col items-center gap-1 p-2 bg-white/10 rounded-xl hover:bg-white/20 transition relative">
+      <div className="relative">
+        <Icon className="w-5 h-5" />
+        {badge && (
+          <span className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold border-2 border-emerald-600">
+            {badge}
+          </span>
+        )}
+      </div>
       <span className="text-xs font-medium">{label}</span>
     </button>
   );
@@ -1555,7 +1523,7 @@ function DesktopPanel(props) {
   );
 }
 
-function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, userPoints, userInitials, user, profileForm, setProfileForm, handleSaveProfile, isSavingProfile, appSettings, setAppSettings }) {
+function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, userPoints, userInitials, user, profileForm, setProfileForm, handleSaveProfile, isSavingProfile, appSettings, setAppSettings, notifications, setNotifications }) {
   if (activePanel === 'rides') {
     return isLoadingHistory ? (
       <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 text-emerald-600 animate-spin" /></div>
@@ -1610,6 +1578,60 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
           <RewardItem title="KES 100 Credit" points={200} available={userPoints >= 200} />
         </div>
       </>
+    );
+  }
+
+  if (activePanel === 'notifications') {
+    const unreadCount = notifications.filter(n => !n.read).length;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-slate-900">Notifications</h3>
+          {unreadCount > 0 && (
+            <button 
+              onClick={async () => {
+                 const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+                 if (unreadIds.length > 0) {
+                   await supabase.from('notifications').update({ read: true }).in('id', unreadIds);
+                   setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                 }
+              }}
+              className="text-sm text-emerald-600 font-bold hover:underline"
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
+        <div className="space-y-3">
+           {notifications.length === 0 ? (
+               <div className="text-center py-12 text-slate-500">
+                  <Bell className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No notifications yet</p>
+               </div>
+           ) : (
+               notifications.map(n => (
+                   <div 
+                     key={n.id} 
+                     onClick={async () => {
+                        if (!n.read) {
+                           await supabase.from('notifications').update({ read: true }).eq('id', n.id);
+                           setNotifications(prev => prev.map(nx => nx.id === n.id ? { ...nx, read: true } : nx));
+                        }
+                     }}
+                     className={`p-4 rounded-xl border cursor-pointer transition active:scale-[0.99] ${!n.read ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'bg-slate-50 border-slate-100'}`}
+                   >
+                      <div className="flex justify-between items-start mb-1">
+                        <h4 className={`font-bold text-sm ${!n.read ? 'text-slate-900' : 'text-slate-700'}`}>{n.title}</h4>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">
+                          {new Date(n.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">{n.message}</p>
+                   </div>
+               ))
+           )}
+        </div>
+      </div>
     );
   }
 
