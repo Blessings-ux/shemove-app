@@ -50,7 +50,7 @@ export default function Signup() {
       // Continue anyway, maybe it's fine
     }
 
-    const { error: signUpError, data } = await signUp(trimmedData);
+    const { error: signUpError, data, driverError } = await signUp(trimmedData);
 
     if (signUpError) {
       setError(signUpError.message || 'Failed to sign up');
@@ -58,10 +58,17 @@ export default function Signup() {
       return;
     }
 
+    if (driverError) {
+      console.warn("Driver initialization failed:", driverError);
+      setError(`Account created, but driver setup failed: ${driverError.message || 'Unknown error'}. Please contact support or try logging in.`);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(false);
 
-    // If email confirmation is disabled, redirect directly to dashboard
-    if (data?.user && !data.user.identities?.length === 0) {
+    // If we have a session, it means email confirmation is disabled or auto-confirmed
+    if (data?.session) {
       // Redirect based on selected role
       switch (formData.role) {
         case 'driver':
