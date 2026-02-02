@@ -88,6 +88,7 @@ export const useAuthStore = create((set, get) => ({
       });
 
       if (error) {
+        console.error("SignIn error details:", error);
         set({ error: error.message, loading: false });
         return { error };
       }
@@ -104,7 +105,7 @@ export const useAuthStore = create((set, get) => ({
           .single();
 
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Profile fetch timeout")), 3000)
+          setTimeout(() => reject(new Error("Profile fetch timeout")), 3000),
         );
 
         try {
@@ -132,6 +133,7 @@ export const useAuthStore = create((set, get) => ({
 
       return { data };
     } catch (err) {
+      console.error("Unexpected login error:", err);
       if (err.name !== "AbortError") {
         set({ error: err.message, loading: false });
         return { error: err };
@@ -163,6 +165,7 @@ export const useAuthStore = create((set, get) => ({
 
       // 2. Profile is created by Supabase trigger
       // 3. If role is 'driver', auto-create driver record (no approval needed)
+      let driverResultError = null;
       if (role === "driver" && authData?.user?.id) {
         const { error: driverError } = await supabase.from("drivers").upsert(
           {
@@ -170,19 +173,21 @@ export const useAuthStore = create((set, get) => ({
             vehicle_type: "boda", // Default vehicle
             is_online: false,
           },
-          { onConflict: "id" }
+          { onConflict: "id" },
         );
 
         if (driverError) {
           console.error("Error auto-creating driver record:", driverError);
-          // Don't fail signup, driver can be created later
+          driverResultError = driverError;
+          // We return success for auth, but pass the driver error back
         } else {
           console.log("Driver record auto-created successfully");
         }
       }
 
       set({ loading: false });
-      return { data: authData };
+      // Return auth data and potential partial success warning
+      return { data: authData, driverError: driverResultError };
     } catch (err) {
       if (err.name !== "AbortError") {
         set({ error: err.message, loading: false });

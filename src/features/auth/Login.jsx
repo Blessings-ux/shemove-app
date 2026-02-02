@@ -21,7 +21,11 @@ export default function Login() {
       const { error: signInError, data } = await signIn(formData);
 
       if (signInError) {
-        setError(signInError.message || 'Failed to sign in');
+        let msg = signInError.message || 'Failed to sign in';
+        if (msg === 'Bad Request' || msg.includes('400')) {
+          msg = 'Invalid login credentials. Please check your email and password. If you just signed up, ensure you have confirmed your email address.';
+        }
+        setError(msg);
         setIsLoading(false);
         return;
       }
