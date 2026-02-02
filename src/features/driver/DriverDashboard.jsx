@@ -80,7 +80,7 @@ export default function DriverDashboard() {
           !profile ? supabase.from('profiles').select('*').eq('id', user.id).single() : Promise.resolve({ data: profile }),
           supabase.from('drivers').select('*').eq('id', user.id).single(),
           supabase.from('rides').select('*').or(`driver_id.eq.${user.id},and(status.eq.pending)`).order('created_at', { ascending: false }).limit(20),
-          supabase.from('rides').select('fare').eq('driver_id', user.id).eq('status', 'completed').gte('created_at', new Date().setHours(0,0,0,0) / 1000) // Today's earnings roughly
+          supabase.from('rides').select('fare').eq('driver_id', user.id).eq('status', 'completed').gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString()) // Today's earnings
         ];
 
         const [profileRes, driverRes, ridesRes, earningsRes] = await Promise.all(promises);
