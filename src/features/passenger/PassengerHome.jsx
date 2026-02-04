@@ -1269,7 +1269,9 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                  navigator.geolocation.getCurrentPosition(
                    async (position) => {
                      const { latitude, longitude } = position.coords;
-                     setPickupLocation({ lat: latitude, lng: longitude });
+                     if (setPickupLocation) {
+                       setPickupLocation({ lat: latitude, lng: longitude });
+                     }
                      try {
                        const address = await reverseGeocode(latitude, longitude);
                        setPickupText(address || 'Current Location');
@@ -1278,19 +1280,17 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                      }
                    },
                    (err) => {
-                     console.error('Geolocation error:', err);
+                     console.warn('Geolocation error:', err.message);
                      // Fallback to default Nairobi location
                      const defaultLocation = { lat: -1.2921, lng: 36.8219 };
-                     setPickupLocation(defaultLocation);
+                     if (setPickupLocation && typeof setPickupLocation === 'function') {
+                       setPickupLocation(defaultLocation);
+                     }
                      setPickupText('Nairobi CBD (Default)');
                      
-                     // Show specific error message
+                     // Show user-friendly message based on error type
                      if (err.code === 1) {
-                       console.log('Permission denied - using default location');
-                     } else if (err.code === 2) {
-                       console.log('Position unavailable - using default location');
-                     } else if (err.code === 3) {
-                       console.log('Timeout - using default location');
+                       console.info('💡 Enable location access in browser settings for better experience');
                      }
                    },
                    { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
