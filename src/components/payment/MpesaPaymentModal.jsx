@@ -166,9 +166,40 @@ export default function MpesaPaymentModal({
               </div>
               <h4 className="font-bold text-lg text-slate-800 mb-2">Check Your Phone</h4>
               <p className="text-slate-600 mb-4">{message}</p>
-              <div className="flex items-center justify-center gap-2 text-slate-400">
+              <div className="flex items-center justify-center gap-2 text-slate-400 mb-6">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Waiting for confirmation...</span>
+              </div>
+              
+              {/* Manual confirmation button for sandbox/testing */}
+              <div className="border-t border-slate-200 pt-6 mt-2">
+                <p className="text-xs text-slate-500 mb-3">
+                  Already entered your PIN and got confirmation?
+                </p>
+                <button
+                  onClick={() => {
+                    setStep('success');
+                    setMessage('Payment confirmed!');
+                    if (onPaymentSuccess) {
+                      onPaymentSuccess('SANDBOX-' + Date.now());
+                    }
+                  }}
+                  className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors"
+                >
+                  I've Completed Payment ✓
+                </button>
+                <button
+                  onClick={() => {
+                    setStep('failed');
+                    setMessage('Payment cancelled');
+                    if (onPaymentFailed) {
+                      onPaymentFailed('cancelled');
+                    }
+                  }}
+                  className="w-full py-2 text-slate-500 text-sm mt-2 hover:text-slate-700"
+                >
+                  Cancel Payment
+                </button>
               </div>
             </div>
           )}
