@@ -14,6 +14,10 @@ export const rideService = {
         passenger_id: passengerId,
         pickup_location: `POINT(${pickupLocation.lng} ${pickupLocation.lat})`,
         dropoff_location: `POINT(${dropoffLocation.lng} ${dropoffLocation.lat})`,
+        pickup_latitude: pickupLocation.lat,
+        pickup_longitude: pickupLocation.lng,
+        dropoff_latitude: dropoffLocation.lat,
+        dropoff_longitude: dropoffLocation.lng,
         status: "pending",
         fare: fare,
       })
@@ -50,7 +54,7 @@ export const rideService = {
           table: "rides",
           filter: "status=eq.pending",
         },
-        (payload) => callback(payload.new)
+        (payload) => callback(payload.new),
       )
       .subscribe();
   },
@@ -67,7 +71,7 @@ export const rideService = {
           table: "rides",
           filter: `id=eq.${rideId}`,
         },
-        (payload) => callback(payload.new)
+        (payload) => callback(payload.new),
       )
       .subscribe();
   },

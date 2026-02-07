@@ -385,8 +385,12 @@ export default function PassengerHome() {
       const { data: ride, error: rideError } = await supabase.from('rides').insert({
         passenger_id: user.id,
         driver_id: offer.driver_id,
-        pickup_location: `POINT(36.8 -1.3)`, // Would use offer location
-        dropoff_location: `POINT(36.9 -1.2)`,
+        pickup_location: `POINT(${offer.pickup_lng || 36.8} ${offer.pickup_lat || -1.3})`,
+        dropoff_location: `POINT(${offer.dropoff_lng || 36.9} ${offer.dropoff_lat || -1.2})`,
+        pickup_latitude: offer.pickup_lat || -1.3,
+        pickup_longitude: offer.pickup_lng || 36.8,
+        dropoff_latitude: offer.dropoff_lat || -1.2,
+        dropoff_longitude: offer.dropoff_lng || 36.9,
         fare: offer.fare_per_seat * seatsBooked,
         status: 'accepted', // Already accepted - driver pre-approved this
         ride_type: 'shared',
@@ -475,6 +479,10 @@ export default function PassengerHome() {
         passenger_id: user.id,
         pickup_location: `POINT(${pickupLocation.lng} ${pickupLocation.lat})`,
         dropoff_location: `POINT(${dropoff.lng} ${dropoff.lat})`,
+        pickup_latitude: pickupLocation.lat,
+        pickup_longitude: pickupLocation.lng,
+        dropoff_latitude: dropoff.lat,
+        dropoff_longitude: dropoff.lng,
         fare: calculatedFare,
         status: 'pending',
         ride_type: isCarpool ? 'shared' : 'solo',
@@ -554,7 +562,7 @@ export default function PassengerHome() {
         setCurrentRide(null);
         setBookingStep('selecting');
         alert('No drivers available right now. Please try again in a moment.');
-      }, 30000); // 30 seconds timeout
+      }, 60000); // 60 seconds timeout
       
     } catch (error) { 
       console.error('Error requesting ride:', error); 

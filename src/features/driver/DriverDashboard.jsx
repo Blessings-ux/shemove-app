@@ -135,24 +135,99 @@ export default function DriverDashboard() {
   // Allow subscription even with active rides IF they are shared
   const canAcceptMore = activeRides.length === 0 || activeRides.every(r => r.ride_type === 'shared');
 
+  // Polling fallback - fetch pending rides every 5 seconds
+  useEffect(() => {
+    let pollInterval;
+    
+    const fetchPendingRides = async () => {
+      if (!isOnline || !user || !canAcceptMore || incomingRequest) return;
+      
+      try {
+        // Fetch pending rides that don't have a driver yet
+        const { data: pendingRides, error } = await supabase
+          .from('rides')
+          .select('*')
+          .eq('status', 'pending')
+          .is('driver_id', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (error) {
+          console.log('Polling error:', error.message);
+          return;
+        }
+        
+        if (pendingRides && pendingRides.length > 0 && !incomingRequest) {
+          const ride = pendingRides[0];
+          console.log('🔔 PENDING RIDE FOUND (via polling):', ride);
+          
+          // Fetch passenger details
+          const { data: passenger } = await supabase
+            .from('profiles')
+            .select('full_name, phone')
+            .eq('id', ride.passenger_id)
+            .single();
+          
+          setIncomingRequest({
+            ...ride,
+            passengerName: passenger?.full_name || 'Passenger',
+            passengerPhone: passenger?.phone || '',
+            rating: 4.8,
+            pickup: 'Pickup Location',
+            dropoff: 'Dropoff Location',
+            distance: `${((ride.fare || 150) / 75).toFixed(1)} km`,
+            paymentMethod: 'M-Pesa'
+          });
+        }
+      } catch (err) {
+        console.log('Polling error:', err);
+      }
+    };
+
+    if (isOnline && user && canAcceptMore) {
+      console.log('🔄 Starting ride polling (every 5 seconds)...');
+      // Initial fetch
+      fetchPendingRides();
+      // Poll every 5 seconds
+      pollInterval = setInterval(fetchPendingRides, 5000);
+    }
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [isOnline, user, canAcceptMore, incomingRequest]);
+
+  // Real-time subscription (backup - works if Supabase realtime is enabled)
   useEffect(() => {
     let channel;
     if (isOnline && user && canAcceptMore) {
       console.log('🚗 Driver is ONLINE - subscribing to pending rides...');
       
       channel = supabase
-        .channel(`driver-${user.id}-rides`)
+        .channel(`driver-${user.id}-rides-${Date.now()}`)
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
-          table: 'rides',
-          filter: 'status=eq.pending'
+          table: 'rides'
         }, async (payload) => {
-          console.log('🔔 NEW RIDE REQUEST RECEIVED:', payload.new);
+          // Only process pending rides without a driver
+          if (payload.new.status !== 'pending' || payload.new.driver_id) {
+            return;
+          }
+          
+          console.log('🔔 NEW RIDE REQUEST RECEIVED (realtime):', payload.new);
           
           // If driver already has solo ride, ignore new requests
           if (activeRides.some(r => r.ride_type === 'solo')) {
             console.log('Ignoring request - driver has active solo ride');
+            return;
+          }
+          
+          // Skip if we already have an incoming request
+          if (incomingRequest) {
+            console.log('Ignoring - already have incoming request');
             return;
           }
           
@@ -170,7 +245,7 @@ export default function DriverDashboard() {
             rating: 4.8,
             pickup: 'Pickup Location',
             dropoff: 'Dropoff Location',
-            distance: `${(payload.new.fare / 75).toFixed(1)} km`,
+            distance: `${((payload.new.fare || 150) / 75).toFixed(1)} km`,
             paymentMethod: 'M-Pesa'
           });
         })
@@ -179,7 +254,7 @@ export default function DriverDashboard() {
           if (status === 'SUBSCRIBED') {
             console.log('✅ Successfully listening for ride requests!');
           } else if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Subscription error - check Supabase Realtime settings');
+            console.error('❌ Subscription error - polling will handle requests');
           }
         });
     }
@@ -190,7 +265,7 @@ export default function DriverDashboard() {
         supabase.removeChannel(channel);
       }
     };
-  }, [isOnline, user, canAcceptMore, activeRides]);
+  }, [isOnline, user, canAcceptMore, activeRides, incomingRequest]);
 
   const fetchDriverData = async () => {
     setIsLoading(true);
