@@ -1,7 +1,7 @@
 // src/features/driver/DriverDashboard.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, Star, Settings, Moon, Globe, ChevronRight, ArrowLeft, LogOut, RefreshCw } from 'lucide-react';
+import { Power, MapPin, Navigation, DollarSign, Bell, Shield, Menu, X, Phone, Star, Settings, Moon, Globe, ChevronRight, ArrowLeft, LogOut, RefreshCw, CheckCircle } from 'lucide-react';
 import { supabase, isAbortError } from '../../services/supabase';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useAuthStore } from '../../store/authStore';
@@ -428,6 +428,72 @@ export default function DriverDashboard() {
     setIncomingRequest(null);
   };
 
+  // Mark driver as arrived at pickup location
+  const markArrived = async (rideId) => {
+    try {
+      const { error } = await supabase
+        .from('rides')
+        .update({ 
+          status: 'arrived',
+          driver_arrived_at: new Date().toISOString()
+        })
+        .eq('id', rideId);
+      
+      if (!error) {
+        setActiveRides(prev => prev.map(r => 
+          r.id === rideId ? { ...r, status: 'arrived' } : r
+        ));
+        
+        // Notify passenger
+        const ride = activeRides.find(r => r.id === rideId);
+        if (ride?.passenger_id) {
+          await supabase.from('notifications').insert({
+            user_id: ride.passenger_id,
+            type: 'driver_arrived',
+            title: 'Driver Arrived! 📍',
+            message: `${profile?.full_name || 'Your driver'} has arrived at the pickup location.`,
+            data: { ride_id: rideId }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error marking arrived:', error);
+    }
+  };
+
+  // Start the ride (passenger is in vehicle)
+  const startRide = async (rideId) => {
+    try {
+      const { error } = await supabase
+        .from('rides')
+        .update({ 
+          status: 'in_progress',
+          ride_started_at: new Date().toISOString()
+        })
+        .eq('id', rideId);
+      
+      if (!error) {
+        setActiveRides(prev => prev.map(r => 
+          r.id === rideId ? { ...r, status: 'in_progress' } : r
+        ));
+        
+        // Notify passenger
+        const ride = activeRides.find(r => r.id === rideId);
+        if (ride?.passenger_id) {
+          await supabase.from('notifications').insert({
+            user_id: ride.passenger_id,
+            type: 'ride_started',
+            title: 'Ride Started! 🚗',
+            message: 'Your trip has begun. Enjoy the ride!',
+            data: { ride_id: rideId }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error starting ride:', error);
+    }
+  };
+
   const completeRide = async (rideId) => {
     const rideToComplete = activeRides.find(r => r.id === rideId);
     if (!rideToComplete) return;
@@ -435,7 +501,11 @@ export default function DriverDashboard() {
     try {
       const { error } = await supabase
         .from('rides')
-        .update({ status: 'completed', payment_status: 'paid' })
+        .update({ 
+          status: 'completed', 
+          payment_status: 'paid',
+          ride_completed_at: new Date().toISOString()
+        })
         .eq('id', rideId);
       
       if (!error) {
@@ -863,6 +933,8 @@ export default function DriverDashboard() {
               setIncomingRequest={declineRide} 
               acceptRide={acceptRide}
               activeRides={activeRides} 
+              markArrived={markArrived}
+              startRide={startRide}
               completeRide={completeRide}
               isLoading={isLoading}
             />
@@ -931,6 +1003,8 @@ export default function DriverDashboard() {
               setIncomingRequest={declineRide} 
               acceptRide={acceptRide}
               activeRides={activeRides} 
+              markArrived={markArrived}
+              startRide={startRide}
               completeRide={completeRide}
               isLoading={isLoading}
             />
@@ -1280,7 +1354,7 @@ function DriverMap({ activeRides }) {
   );
 }
 
-function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRides, completeRide, isLoading }) {
+function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingRequest, setIncomingRequest, acceptRide, activeRides, markArrived, startRide, completeRide, isLoading }) {
   const hasActiveRides = activeRides && activeRides.length > 0;
 
   return (
@@ -1420,6 +1494,26 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
           {/* Render each active ride as a card */}
           {activeRides.map((ride) => (
             <div key={ride.id} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+              {/* Status Badge */}
+              <div className="flex items-center justify-between mb-3">
+                <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                  ride.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                  ride.status === 'arrived' ? 'bg-amber-100 text-amber-700' :
+                  ride.status === 'in_progress' ? 'bg-emerald-100 text-emerald-700' :
+                  'bg-slate-100 text-slate-700'
+                }`}>
+                  {ride.status === 'accepted' ? '📍 En Route to Pickup' :
+                   ride.status === 'arrived' ? '⏳ Waiting for Passenger' :
+                   ride.status === 'in_progress' ? '🚗 Ride in Progress' :
+                   ride.status}
+                </div>
+                {ride.ride_type === 'shared' && (
+                  <div className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs font-bold">
+                    SHARED
+                  </div>
+                )}
+              </div>
+
               {/* Passenger Strip */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -1432,7 +1526,6 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                       {ride.passengerPhone || 'No phone available'}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      {ride.ride_type === 'shared' && <span className="text-purple-600 font-bold mr-2">SHARED</span>}
                       {ride.dropoff}
                     </div>
                   </div>
@@ -1448,15 +1541,40 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 )}
               </div>
 
-              {/* Fare & Complete */}
+              {/* Fare & Action Buttons */}
               <div className="flex items-center justify-between">
                 <div className="font-black text-xl text-emerald-700">KES {ride.fare}</div>
-                <button 
-                  onClick={() => completeRide(ride.id)}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 transition"
-                >
-                  Complete
-                </button>
+                
+                {/* Status-based action buttons */}
+                {ride.status === 'accepted' && (
+                  <button 
+                    onClick={() => markArrived(ride.id)}
+                    className="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm hover:bg-amber-600 transition flex items-center gap-2"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    Arrived at Pickup
+                  </button>
+                )}
+                
+                {ride.status === 'arrived' && (
+                  <button 
+                    onClick={() => startRide(ride.id)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition flex items-center gap-2"
+                  >
+                    <Navigation className="w-4 h-4" />
+                    Start Ride
+                  </button>
+                )}
+                
+                {ride.status === 'in_progress' && (
+                  <button 
+                    onClick={() => completeRide(ride.id)}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 transition flex items-center gap-2"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    End Ride
+                  </button>
+                )}
               </div>
             </div>
           ))}
