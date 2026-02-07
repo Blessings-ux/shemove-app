@@ -343,6 +343,78 @@ export default function PassengerHome() {
     return () => supabase.removeChannel(channel);
   }, [user]);
 
+  // State for driver info and rating
+  const [driverInfo, setDriverInfo] = useState(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [completedRideForRating, setCompletedRideForRating] = useState(null);
+
+  // Subscribe to current ride status updates
+  useEffect(() => {
+    if (!currentRide?.id) return;
+
+    console.log('📍 Subscribing to ride status updates:', currentRide.id);
+
+    const fetchDriverInfo = async (driverId) => {
+      if (!driverId) return;
+      const { data: driver } = await supabase
+        .from('drivers')
+        .select('id, vehicle_type, plate_number')
+        .eq('id', driverId)
+        .single();
+      
+      const { data: driverProfile } = await supabase
+        .from('profiles')
+        .select('full_name, phone')
+        .eq('id', driverId)
+        .single();
+
+      if (driver && driverProfile) {
+        setDriverInfo({
+          ...driver,
+          name: driverProfile.full_name,
+          phone: driverProfile.phone
+        });
+      }
+    };
+
+    // Fetch initial driver info if ride is already accepted
+    if (currentRide.driver_id) {
+      fetchDriverInfo(currentRide.driver_id);
+    }
+
+    const channel = supabase
+      .channel(`ride-status-${currentRide.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'rides',
+        filter: `id=eq.${currentRide.id}`
+      }, async (payload) => {
+        console.log('🔔 Ride status updated:', payload.new.status);
+        const updatedRide = payload.new;
+        
+        // Update current ride state
+        setCurrentRide(prev => ({ ...prev, ...updatedRide }));
+
+        // Fetch driver info when ride is accepted
+        if (updatedRide.driver_id && !driverInfo) {
+          fetchDriverInfo(updatedRide.driver_id);
+        }
+
+        // Show rating modal when ride is completed
+        if (updatedRide.status === 'completed') {
+          setCompletedRideForRating(updatedRide);
+          setShowRatingModal(true);
+          setBookingStep('idle');
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentRide?.id]);
+
   // Book a carpool offer - INSTANT connection, no confirmation needed
   const bookCarpoolOffer = async (offer) => {
     if (!user || seatsBooked > offer.available_seats) {
@@ -385,8 +457,12 @@ export default function PassengerHome() {
       const { data: ride, error: rideError } = await supabase.from('rides').insert({
         passenger_id: user.id,
         driver_id: offer.driver_id,
-        pickup_location: `POINT(36.8 -1.3)`, // Would use offer location
-        dropoff_location: `POINT(36.9 -1.2)`,
+        pickup_location: `POINT(${offer.pickup_lng || 36.8} ${offer.pickup_lat || -1.3})`,
+        dropoff_location: `POINT(${offer.dropoff_lng || 36.9} ${offer.dropoff_lat || -1.2})`,
+        pickup_latitude: offer.pickup_lat || -1.3,
+        pickup_longitude: offer.pickup_lng || 36.8,
+        dropoff_latitude: offer.dropoff_lat || -1.2,
+        dropoff_longitude: offer.dropoff_lng || 36.9,
         fare: offer.fare_per_seat * seatsBooked,
         status: 'accepted', // Already accepted - driver pre-approved this
         ride_type: 'shared',
@@ -475,6 +551,10 @@ export default function PassengerHome() {
         passenger_id: user.id,
         pickup_location: `POINT(${pickupLocation.lng} ${pickupLocation.lat})`,
         dropoff_location: `POINT(${dropoff.lng} ${dropoff.lat})`,
+        pickup_latitude: pickupLocation.lat,
+        pickup_longitude: pickupLocation.lng,
+        dropoff_latitude: dropoff.lat,
+        dropoff_longitude: dropoff.lng,
         fare: calculatedFare,
         status: 'pending',
         ride_type: isCarpool ? 'shared' : 'solo',
@@ -554,7 +634,7 @@ export default function PassengerHome() {
         setCurrentRide(null);
         setBookingStep('selecting');
         alert('No drivers available right now. Please try again in a moment.');
-      }, 30000); // 30 seconds timeout
+      }, 60000); // 60 seconds timeout
       
     } catch (error) { 
       console.error('Error requesting ride:', error); 
@@ -853,6 +933,25 @@ export default function PassengerHome() {
         onPaymentSuccess={() => {
           setShowPaymentModal(false);
           alert('Payment Successful!');
+        }}
+      />
+
+      {/* Rating Modal - Shows after ride completion */}
+      <RatingModal 
+        isOpen={showRatingModal}
+        ride={completedRideForRating}
+        onSubmit={(rating) => {
+          console.log('Rating submitted:', rating);
+          setShowRatingModal(false);
+          setCompletedRideForRating(null);
+          setCurrentRide(null);
+          setDriverInfo(null);
+        }}
+        onClose={() => {
+          setShowRatingModal(false);
+          setCompletedRideForRating(null);
+          setCurrentRide(null);
+          setDriverInfo(null);
         }}
       />
     </div>
@@ -1836,3 +1935,162 @@ function SaveLocationForm({ type, onSave, onCancel }) {
     </div>
   );
 }
+
+// RideTrackingView Component - Shows driver info and ride status
+function RideTrackingView({ ride, driverInfo, onCancel }) {
+  if (!ride) return null;
+
+  const statusConfig = {
+    pending: { label: 'Finding Driver...', color: 'bg-amber-100 text-amber-700', icon: '🔍' },
+    accepted: { label: 'Driver on the way', color: 'bg-blue-100 text-blue-700', icon: '🚗' },
+    arrived: { label: 'Driver arrived!', color: 'bg-emerald-100 text-emerald-700', icon: '📍' },
+    in_progress: { label: 'Ride in progress', color: 'bg-purple-100 text-purple-700', icon: '🛣️' },
+  };
+
+  const status = statusConfig[ride.status] || statusConfig.pending;
+
+  return (
+    <div className="space-y-4">
+      {/* Status Badge */}
+      <div className={`${status.color} px-4 py-3 rounded-xl flex items-center gap-3`}>
+        <span className="text-2xl">{status.icon}</span>
+        <div>
+          <div className="font-bold">{status.label}</div>
+          {ride.status === 'arrived' && (
+            <div className="text-sm opacity-75">Head to the pickup point</div>
+          )}
+        </div>
+      </div>
+
+      {/* Driver Info Card */}
+      {driverInfo && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-xl">
+              {driverInfo.name?.charAt(0) || 'D'}
+            </div>
+            <div className="flex-1">
+              <div className="font-bold text-slate-900">{driverInfo.name}</div>
+              <div className="text-sm text-slate-500">
+                {driverInfo.vehicle_type?.toUpperCase()}
+              </div>
+              <div className="text-xs font-mono text-slate-600 bg-slate-100 inline-block px-2 py-0.5 rounded mt-1">
+                {driverInfo.plate_number}
+              </div>
+            </div>
+            {driverInfo.phone && (
+              <a 
+                href={`tel:${driverInfo.phone}`}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm hover:bg-emerald-200 transition"
+              >
+                📞 Call
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Ride Details */}
+      <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+        <div className="flex justify-between">
+          <span className="text-slate-500">Fare</span>
+          <span className="font-bold text-emerald-700">KES {ride.fare}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Payment</span>
+          <span className="font-bold">{ride.payment_status === 'paid' ? '✅ Paid' : '⏳ Pending'}</span>
+        </div>
+      </div>
+
+      {/* Cancel button (only for pending/accepted) */}
+      {(ride.status === 'pending' || ride.status === 'accepted') && (
+        <button
+          onClick={onCancel}
+          className="w-full py-3 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition"
+        >
+          Cancel Ride
+        </button>
+      )}
+    </div>
+  );
+}
+
+// RatingModal Component - For rating driver after ride completion
+function RatingModal({ isOpen, ride, onSubmit, onClose }) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isOpen || !ride) return null;
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      await supabase
+        .from('rides')
+        .update({ driver_rating: rating, rating_comment: comment })
+        .eq('id', ride.id);
+      
+      onSubmit(rating);
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-6">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">🎉</span>
+          </div>
+          <h3 className="text-xl font-bold text-slate-900">Ride Complete!</h3>
+          <p className="text-slate-500 mt-1">How was your trip?</p>
+        </div>
+
+        {/* Star Rating */}
+        <div className="flex justify-center gap-2">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              onClick={() => setRating(star)}
+              className={`text-3xl transition-transform hover:scale-110 ${
+                star <= rating ? 'text-amber-400' : 'text-slate-200'
+              }`}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+
+        {/* Comment */}
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Leave a comment (optional)"
+          className="w-full p-3 border border-slate-200 rounded-xl resize-none h-20"
+        />
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600"
+          >
+            Skip
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Submitting...' : 'Submit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

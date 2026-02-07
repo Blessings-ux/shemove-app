@@ -12,9 +12,24 @@ import { supabase } from "./supabase";
 export const initiateMpesaPayment = async (
   phoneNumber,
   amount,
-  rideId = null
+  rideId = null,
 ) => {
   try {
+    // Check if user is authenticated first
+    const {
+      data: { session },
+      error: authError,
+    } = await supabase.auth.getSession();
+
+    if (authError || !session) {
+      console.error("M-Pesa: User not authenticated", authError);
+      return {
+        success: false,
+        message: "Please log in again to make a payment",
+        authRequired: true,
+      };
+    }
+
     // Format phone number to 254 format
     let formattedPhone = phoneNumber.replace(/\D/g, "");
     if (formattedPhone.startsWith("0")) {
@@ -22,6 +37,8 @@ export const initiateMpesaPayment = async (
     } else if (!formattedPhone.startsWith("254")) {
       formattedPhone = "254" + formattedPhone;
     }
+
+    console.log("M-Pesa: Calling Edge Function with auth token...");
 
     const { data, error } = await supabase.functions.invoke("mpesa-push", {
       body: {
@@ -36,6 +53,25 @@ export const initiateMpesaPayment = async (
 
     if (error) {
       console.error("M-Pesa function error:", error);
+
+      // Check if it's a 401 auth error
+      if (
+        error.message?.includes("401") ||
+        error.message?.includes("Unauthorized")
+      ) {
+        // Try to refresh the session
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          return {
+            success: false,
+            message: "Session expired. Please log in again.",
+            authRequired: true,
+          };
+        }
+        // Retry the request on successful refresh
+        return initiateMpesaPayment(phoneNumber, amount, rideId);
+      }
+
       return {
         success: false,
         message: error.message || "Failed to initiate payment",
@@ -101,7 +137,7 @@ export const checkPaymentStatus = async (checkoutRequestId) => {
 export const pollPaymentStatus = async (
   checkoutRequestId,
   maxAttempts = 30,
-  intervalMs = 2000
+  intervalMs = 2000,
 ) => {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
