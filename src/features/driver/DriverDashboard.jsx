@@ -819,7 +819,7 @@ export default function DriverDashboard() {
         >
           <div className="flex justify-between items-center">
             <div className="bg-white px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3 border border-slate-200/50">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-xl flex items-center justify-center text-white shadow-inner">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center text-white shadow-inner">
                 <span className="text-[10px] font-bold">KES</span>
               </div>
               <div className="flex flex-col">
@@ -874,7 +874,7 @@ export default function DriverDashboard() {
                           setNotifications(prev => prev.map(n => ({ ...n, read: true })));
                         }
                       }}
-                      className="text-xs text-emerald-600 font-bold hover:underline"
+                      className="text-xs text-purple-600 font-bold hover:underline"
                     >
                       Mark all read
                     </button>
@@ -889,7 +889,7 @@ export default function DriverDashboard() {
                   {notifications.map(n => (
                     <div 
                       key={n.id} 
-                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-emerald-50' : ''}`}
+                      className={`p-3 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-purple-50' : ''}`}
                       onClick={async () => {
                         if (!n.read) {
                           await supabase.from('notifications').update({ read: true }).eq('id', n.id);
@@ -978,13 +978,13 @@ export default function DriverDashboard() {
             </div>
             
             {/* Earnings Card Desktop */}
-            <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-2xl p-5 text-white shadow-lg shadow-emerald-200/50">
+            <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-2xl p-5 text-white shadow-lg shadow-purple-200/50">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-white/10">
                   KES
                 </div>
                 <div>
-                  <div className="text-emerald-100 text-sm font-medium">Total Earnings Today</div>
+                  <div className="text-purple-100 text-sm font-medium">Total Earnings Today</div>
                   <div className="text-3xl font-bold">
                     {isLoading ? '...' : `KES ${todayEarnings.toLocaleString()}`}
                   </div>
@@ -1025,22 +1025,22 @@ export default function DriverDashboard() {
           
           <div className="p-5 space-y-6 max-w-2xl mx-auto">
             {/* Driver Profile - Editable */}
-            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+            <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xl font-bold">
+                  <div className="w-14 h-14 bg-purple-600 text-white rounded-full flex items-center justify-center text-xl font-bold">
                     {profile?.full_name?.charAt(0) || 'D'}
                   </div>
                   <div>
                     <div className="font-bold text-slate-900">{profile?.full_name || 'Driver'}</div>
-                    <div className="text-xs text-emerald-600 font-medium capitalize">
+                    <div className="text-xs text-purple-600 font-medium capitalize">
                       {driverData?.vehicle_type || 'Boda'} Driver
                     </div>
                   </div>
                 </div>
                 <button 
                   onClick={() => setIsEditingProfile(!isEditingProfile)}
-                  className="text-emerald-600 text-sm font-bold hover:underline"
+                  className="text-purple-600 text-sm font-bold hover:underline"
                 >
                   {isEditingProfile ? 'Cancel' : 'Edit'}
                 </button>
@@ -1048,14 +1048,14 @@ export default function DriverDashboard() {
               
               {/* Editable Form */}
               {isEditingProfile && (
-                <div className="space-y-3 pt-3 border-t border-emerald-200">
+                <div className="space-y-3 pt-3 border-t border-purple-200">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
                     <input 
                       type="text"
                       value={profileForm.full_name}
                       onChange={(e) => setProfileForm(prev => ({ ...prev, full_name: e.target.value }))}
-                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1065,7 +1065,7 @@ export default function DriverDashboard() {
                       value={profileForm.phone}
                       onChange={(e) => setProfileForm(prev => ({ ...prev, phone: e.target.value }))}
                       placeholder="+254 7XX XXX XXX"
-                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1073,7 +1073,7 @@ export default function DriverDashboard() {
                     <select 
                       value={profileForm.vehicle_type}
                       onChange={(e) => setProfileForm(prev => ({ ...prev, vehicle_type: e.target.value }))}
-                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     >
                       <option value="boda">Boda (Motorcycle)</option>
                       <option value="tuktuk">Tuktuk (Auto-rickshaw)</option>
@@ -1087,13 +1087,13 @@ export default function DriverDashboard() {
                       value={profileForm.plate_number}
                       onChange={(e) => setProfileForm(prev => ({ ...prev, plate_number: e.target.value.toUpperCase() }))}
                       placeholder="KXX 123X"
-                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 uppercase focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 uppercase focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
                   </div>
                   <button 
                     onClick={handleSaveProfile}
                     disabled={isSavingProfile}
-                    className="w-full mt-2 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition disabled:opacity-50"
+                    className="w-full mt-2 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50"
                   >
                     {isSavingProfile ? 'Saving...' : 'Save Changes'}
                   </button>
@@ -1107,6 +1107,54 @@ export default function DriverDashboard() {
                   <div><span className="text-slate-400">Plate:</span> {driverData?.plate_number || 'Not set'}</div>
                 </div>
               )}
+            </div>
+
+            {/* Driver Verification Section */}
+            <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-purple-600" />
+                  <h3 className="font-bold text-slate-900">Driver Verification</h3>
+                </div>
+                <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold">
+                  Pending
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                SheMove requires all drivers to be verified female drivers. Please confirm your gender and upload a valid ID for verification.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Gender</label>
+                  <select className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    <option value="">Select gender</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">ID / Passport Photo</label>
+                  <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
+                    <input type="file" accept="image/*" className="hidden" id="id-upload" />
+                    <label htmlFor="id-upload" className="cursor-pointer">
+                      <div className="text-purple-600 font-bold text-sm">Click to upload</div>
+                      <div className="text-xs text-slate-400 mt-1">JPG, PNG up to 5MB</div>
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Selfie with ID</label>
+                  <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
+                    <input type="file" accept="image/*" className="hidden" id="selfie-upload" />
+                    <label htmlFor="selfie-upload" className="cursor-pointer">
+                      <div className="text-purple-600 font-bold text-sm">Click to upload selfie</div>
+                      <div className="text-xs text-slate-400 mt-1">Hold your ID next to your face</div>
+                    </label>
+                  </div>
+                </div>
+                <button className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition">
+                  Submit for Verification
+                </button>
+              </div>
             </div>
 
             {/* Carpool Offers Section */}
@@ -1160,7 +1208,7 @@ export default function DriverDashboard() {
                             setCarpoolOffer(prev => ({ ...prev, pickup_name: 'Nairobi CBD (Default)' }));
                           }
                         }}
-                        className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition whitespace-nowrap"
+                        className="px-3 py-2 bg-purple-100 text-purple-700 rounded-xl text-xs font-bold hover:bg-purple-200 transition whitespace-nowrap"
                       >
                         📍 Use My Location
                       </button>
@@ -1240,7 +1288,7 @@ export default function DriverDashboard() {
                         <div className="text-sm">
                           <span className="font-bold text-purple-600">{offer.available_seats}/{offer.total_seats}</span>
                           <span className="text-slate-500"> seats • </span>
-                          <span className="font-bold text-emerald-600">KES {offer.fare_per_seat}</span>
+                          <span className="font-bold text-purple-600">KES {offer.fare_per_seat}</span>
                           <span className="text-slate-500">/seat</span>
                         </div>
                         <button 
@@ -1274,7 +1322,7 @@ export default function DriverDashboard() {
                   </div>
                   <span className="font-medium text-slate-700">Notifications</span>
                 </div>
-                <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.notifications ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.notifications ? 'bg-purple-500' : 'bg-slate-300'}`}>
                   <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.notifications ? 'right-1' : 'left-1'}`} />
                 </div>
               </button>
@@ -1286,10 +1334,10 @@ export default function DriverDashboard() {
               
               <a href="#" target="_blank" className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm"><Shield className="w-5 h-5" /></div>
+                  <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm"><Shield className="w-5 h-5" /></div>
                   <span className="font-medium text-slate-700">Privacy & Security</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 transition" />
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-purple-500 transition" />
               </a>
 
               <button onClick={() => alert('Rating feature coming soon!')} className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2">
@@ -1297,7 +1345,7 @@ export default function DriverDashboard() {
                   <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-yellow-500 shadow-sm"><Star className="w-5 h-5" /></div>
                   <span className="font-medium text-slate-700">Rate the App</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 transition" />
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-purple-500 transition" />
               </button>
             </div>
 
@@ -1315,7 +1363,7 @@ export default function DriverDashboard() {
             {/* App Info */}
             <div className="pt-8 pb-4 text-center">
               <div className="w-12 h-12 bg-slate-100 rounded-xl mx-auto mb-3 flex items-center justify-center text-xl font-bold text-slate-400">J</div>
-              <h4 className="font-bold text-slate-900">JiraniRide Driver</h4>
+              <h4 className="font-bold text-slate-900">SheMove Driver</h4>
               <p className="text-xs text-slate-400 mt-1">Version 2.0.1 (Build 452)</p>
             </div>
           </div>
@@ -1338,11 +1386,11 @@ function DriverMap({ activeRides }) {
       
       {/* Navigation Overlay - Show for any active ride */}
       {activeRides && activeRides.length > 0 && (
-        <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-emerald-700 text-white p-4 shadow-xl z-20 rounded-none md:rounded-lg">
+        <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-purple-700 text-white p-4 shadow-xl z-20 rounded-none md:rounded-lg">
             <div className="flex items-start gap-4">
               <Navigation className="w-10 h-10 mt-1 opacity-90" />
               <div>
-                <div className="text-emerald-100 font-medium text-sm">
+                <div className="text-purple-100 font-medium text-sm">
                   {activeRides.length} Active {activeRides.length === 1 ? 'Ride' : 'Rides'}
                 </div>
                 <div className="font-bold text-2xl leading-tight">Navigating...</div>
@@ -1438,7 +1486,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                  {incomingRequest.passengerPhone && (
                    <a 
                      href={`tel:${incomingRequest.passengerPhone}`}
-                     className="flex items-center gap-1 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs hover:bg-emerald-200 transition"
+                     className="flex items-center gap-1 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg font-bold text-xs hover:bg-purple-200 transition"
                    >
                      <Phone className="w-3.5 h-3.5" />
                      Call
@@ -1499,7 +1547,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
                   ride.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
                   ride.status === 'arrived' ? 'bg-amber-100 text-amber-700' :
-                  ride.status === 'in_progress' ? 'bg-emerald-100 text-emerald-700' :
+                  ride.status === 'in_progress' ? 'bg-purple-100 text-purple-700' :
                   'bg-slate-100 text-slate-700'
                 }`}>
                   {ride.status === 'accepted' ? '📍 En Route to Pickup' :
@@ -1533,7 +1581,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 {ride.passengerPhone && (
                   <a 
                     href={`tel:${ride.passengerPhone}`} 
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm hover:bg-emerald-200 transition"
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold text-sm hover:bg-purple-200 transition"
                   >
                     <Phone className="w-4 h-4" />
                     Call
@@ -1543,7 +1591,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
 
               {/* Fare & Action Buttons */}
               <div className="flex items-center justify-between">
-                <div className="font-black text-xl text-emerald-700">KES {ride.fare}</div>
+                <div className="font-black text-xl text-purple-700">KES {ride.fare}</div>
                 
                 {/* Status-based action buttons */}
                 {ride.status === 'accepted' && (
@@ -1569,7 +1617,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 {ride.status === 'in_progress' && (
                   <button 
                     onClick={() => completeRide(ride.id)}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 transition flex items-center gap-2"
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold text-sm hover:bg-purple-700 transition flex items-center gap-2"
                   >
                     <CheckCircle className="w-4 h-4" />
                     End Ride

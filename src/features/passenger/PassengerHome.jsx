@@ -83,7 +83,7 @@ export default function PassengerHome() {
 
   // Load saved locations from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('jiraniride_saved_locations');
+    const saved = localStorage.getItem('shemove_saved_locations');
     if (saved) {
       try {
         setSavedLocations(JSON.parse(saved));
@@ -97,7 +97,7 @@ export default function PassengerHome() {
   const saveLocation = (type, location) => {
     const updated = { ...savedLocations, [type]: location };
     setSavedLocations(updated);
-    localStorage.setItem('jiraniride_saved_locations', JSON.stringify(updated));
+    localStorage.setItem('shemove_saved_locations', JSON.stringify(updated));
     setShowSaveLocationModal(null);
   };
 
@@ -711,7 +711,7 @@ export default function PassengerHome() {
           <div className="flex justify-between items-center">
             {/* User Greeting + Points */}
             <div onClick={() => openPanel('profile')} className="bg-white px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3 border border-slate-200/50 cursor-pointer active:scale-95 transition">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-inner">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-inner">
                 {userInitials}
               </div>
               <div className="flex flex-col">
@@ -807,7 +807,7 @@ export default function PassengerHome() {
         <div className="w-[420px] xl:w-[480px] h-full bg-white border-l border-slate-200 flex flex-col">
           
           {/* Header with User Info */}
-          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white">
+          <div className="p-6 border-b border-slate-100 bg-gradient-to-r from-purple-600 to-purple-700 text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-lg font-bold">
@@ -815,7 +815,7 @@ export default function PassengerHome() {
                 </div>
                 <div>
                   <h2 className="font-bold text-lg">{profile?.full_name || 'Guest'}</h2>
-                  <p className="text-emerald-100 text-sm">{userPhone}</p>
+                  <p className="text-purple-100 text-sm">{userPhone}</p>
                 </div>
               </div>
               <div className="bg-white/20 px-3 py-1.5 rounded-full flex items-center gap-1.5">
@@ -885,11 +885,11 @@ export default function PassengerHome() {
       {menuOpen && <div className="lg:hidden fixed inset-0 bg-black/50 z-[55] backdrop-blur-sm" onClick={() => setMenuOpen(false)} />}
       
       <div className={`lg:hidden fixed top-0 left-0 h-full w-[80%] max-w-[280px] bg-white z-[60] shadow-2xl transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-4 bg-emerald-600 text-white relative">
+        <div className="p-4 bg-purple-600 text-white relative">
           <button onClick={() => setMenuOpen(false)} className="absolute top-3 right-3 p-1 text-white/80 hover:text-white"><X className="w-5 h-5" /></button>
           <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mb-3 text-xl font-bold">{userInitials}</div>
           <h2 className="text-lg font-bold truncate">{profile?.full_name || 'Guest User'}</h2>
-          <p className="text-emerald-100 text-xs">{userPhone}</p>
+          <p className="text-purple-100 text-xs">{userPhone}</p>
         </div>
         <nav className="p-3 space-y-1">
           <MenuItem icon={Bell} label="Notifications" badge={notifications.filter(n => !n.read).length || null} onClick={() => openPanel('notifications')} />
@@ -966,7 +966,7 @@ function QuickAction({ icon: Icon, label, onClick, badge }) {
       <div className="relative">
         <Icon className="w-5 h-5" />
         {badge && (
-          <span className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold border-2 border-emerald-600">
+          <span className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold border-2 border-purple-600">
             {badge}
           </span>
         )}
@@ -1022,10 +1022,10 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
           </button>
           <button 
             onClick={() => setBookingStep('selecting')}
-            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-emerald-50"
+            className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2 active:scale-95 transition hover:bg-purple-50"
           >
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-              <Star className="w-6 h-6 text-emerald-600" />
+            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+              <Star className="w-6 h-6 text-purple-600" />
             </div>
             <span className="text-sm font-medium text-slate-700">New Trip</span>
           </button>
@@ -1106,7 +1106,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
 
                     {/* Driver Info */}
                     <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl mb-3">
-                      <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                         {offer.driver?.full_name?.charAt(0) || 'D'}
                       </div>
                       <div className="flex-1">
@@ -1133,7 +1133,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
                           <div className="text-xs text-slate-500">Seats Left</div>
                         </div>
                         <div className="text-center">
-                          <div className="text-lg font-bold text-emerald-600">KES {offer.fare_per_seat}</div>
+                          <div className="text-lg font-bold text-purple-600">KES {offer.fare_per_seat}</div>
                           <div className="text-xs text-slate-500">Per Seat</div>
                         </div>
                       </div>
@@ -1191,7 +1191,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   if (bookingStep === 'searching') {
     return (
       <div className="text-center py-8">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 flex items-center justify-center"><Loader2 className="w-10 h-10 text-emerald-600 animate-spin" /></div>
+        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-purple-100 flex items-center justify-center"><Loader2 className="w-10 h-10 text-purple-600 animate-spin" /></div>
         <h3 className="text-xl font-bold mb-2 text-slate-800">Finding your ride...</h3>
         <p className="text-sm text-slate-500 mb-6">Looking for nearby {selectedVehicle}s</p>
         <button onClick={handleCancelRide} className="text-red-600 font-medium hover:text-red-700">Cancel Request</button>
@@ -1209,15 +1209,15 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
     return (
       <div>
         <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium mb-3">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <div className="inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-medium mb-3">
+            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
             Driver on the way
           </div>
           <h3 className="text-xl sm:text-2xl font-bold text-slate-800">Your ride is arriving!</h3>
         </div>
         <div className="bg-slate-50 p-5 rounded-2xl mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
+            <div className="w-16 h-16 bg-purple-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
               {driverInitials}
             </div>
             <div className="flex-1">
@@ -1229,7 +1229,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
               </div>
             </div>
             {driverPhone && (
-              <a href={`tel:${driverPhone}`} className="w-14 h-14 bg-emerald-600 rounded-full flex items-center justify-center text-white hover:bg-emerald-700 transition active:scale-95 shadow-lg">
+              <a href={`tel:${driverPhone}`} className="w-14 h-14 bg-purple-600 rounded-full flex items-center justify-center text-white hover:bg-purple-700 transition active:scale-95 shadow-lg">
                 <Phone className="w-6 h-6" />
               </a>
             )}
@@ -1244,7 +1244,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
             console.log('Payment Button Clicked'); 
             setShowPaymentModal(true);
           }}
-          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition active:scale-[0.98] mb-3 flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"
+          className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold hover:bg-purple-700 transition active:scale-[0.98] mb-3 flex items-center justify-center gap-2 shadow-lg shadow-purple-200"
         >
           <CreditCard className="w-5 h-5" />
           Pay with M-Pesa
@@ -1345,9 +1345,9 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
       {/* INPUTS */}
       <div className="space-y-3 relative">
         {/* Pickup */}
-        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-200 transition">
-           <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
-             <MapPin className="w-5 h-5 text-emerald-600" />
+        <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-purple-200 transition">
+           <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+             <MapPin className="w-5 h-5 text-purple-600" />
            </div>
            <div className="flex-1">
              <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">Pickup</div>
@@ -1360,7 +1360,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                 className="w-full bg-transparent border-none p-0 text-base font-semibold focus:ring-0 focus:outline-none text-slate-800 placeholder:text-slate-400"
              />
            </div>
-           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />}
+           {activeSearchField === 'pickup' && isSearching && <Loader2 className="w-5 h-5 animate-spin text-purple-500" />}
            <button
              type="button"
              onClick={async () => {
@@ -1401,7 +1401,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                  setPickupText('Nairobi CBD (Default)');
                }
              }}
-             className="px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition whitespace-nowrap flex items-center gap-1"
+             className="px-3 py-2 bg-purple-100 text-purple-700 rounded-xl text-xs font-bold hover:bg-purple-200 transition whitespace-nowrap flex items-center gap-1"
            >
              📍 My Location
            </button>
@@ -1433,7 +1433,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                <button 
                  key={idx}
                  onClick={() => handleSelectLocation(result)}
-                 className="w-full text-left p-4 hover:bg-emerald-50 flex items-center gap-3 border-b border-slate-100 last:border-0 transition"
+                 className="w-full text-left p-4 hover:bg-purple-50 flex items-center gap-3 border-b border-slate-100 last:border-0 transition"
                >
                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
                     <MapPin className="w-5 h-5 text-slate-600" />
@@ -1535,7 +1535,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-emerald-600">KES {offer.fare_per_seat * seatsBooked}</div>
+                      <div className="font-bold text-purple-600">KES {offer.fare_per_seat * seatsBooked}</div>
                       <div className="text-xs text-purple-600">{offer.available_seats} seats left</div>
                     </div>
                   </div>
@@ -1564,16 +1564,16 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
               }}
               className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
                 isSelected 
-                ? 'border-emerald-500 bg-emerald-50 shadow-sm' 
+                ? 'border-purple-500 bg-purple-50 shadow-sm' 
                 : 'border-transparent bg-slate-50 hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-4">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? 'bg-white text-emerald-600' : 'bg-white text-slate-500'}`}>
+                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? 'bg-white text-purple-600' : 'bg-white text-slate-500'}`}>
                     <v.icon className="w-6 h-6" />
                  </div>
                  <div className="text-left">
-                    <div className={`font-bold text-sm ${isSelected ? 'text-emerald-900' : 'text-slate-900'}`}>{v.label}</div>
+                    <div className={`font-bold text-sm ${isSelected ? 'text-purple-900' : 'text-slate-900'}`}>{v.label}</div>
                     <div className="text-xs text-slate-500">{v.desc}</div>
                  </div>
               </div>
@@ -1603,7 +1603,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
           }
         }}
         disabled={estimatedDistance <= 0 || isRequestingRide}
-        className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full py-4 bg-purple-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {isRequestingRide ? <Loader2 className="w-6 h-6 animate-spin" /> : <span>Confirm {vehicles.find(v => v.id === selectedVehicle)?.label}</span>}
       </button>
@@ -1625,7 +1625,7 @@ function DesktopPanel(props) {
 function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, userPoints, userInitials, user, profileForm, setProfileForm, handleSaveProfile, isSavingProfile, appSettings, setAppSettings, notifications, setNotifications }) {
   if (activePanel === 'rides') {
     return isLoadingHistory ? (
-      <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 text-emerald-600 animate-spin" /></div>
+      <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 text-purple-600 animate-spin" /></div>
     ) : rideHistory.length === 0 ? (
       <div className="text-center py-12 text-slate-500"><History className="w-12 h-12 mx-auto mb-3 text-slate-300" /><p>No rides yet</p></div>
     ) : (
@@ -1666,9 +1666,9 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
           <h3 className="text-3xl font-bold text-slate-900">{userPoints}</h3>
           <p className="text-slate-500">Loyalty Points</p>
         </div>
-        <div className="bg-emerald-50 p-4 rounded-xl mb-6">
-          <h4 className="font-bold text-emerald-800 mb-2">How to Earn Points</h4>
-          <ul className="text-sm text-emerald-700 space-y-1"><li>• Complete a ride: +15 points</li><li>• Refer a friend: +50 points</li><li>• 5-star rating: +5 points</li></ul>
+        <div className="bg-purple-50 p-4 rounded-xl mb-6">
+          <h4 className="font-bold text-purple-800 mb-2">How to Earn Points</h4>
+          <ul className="text-sm text-purple-700 space-y-1"><li>• Complete a ride: +15 points</li><li>• Refer a friend: +50 points</li><li>• 5-star rating: +5 points</li></ul>
         </div>
         <h4 className="font-bold text-slate-800 mb-3">Redeem Rewards</h4>
         <div className="space-y-3">
@@ -1695,7 +1695,7 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
                    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
                  }
               }}
-              className="text-sm text-emerald-600 font-bold hover:underline"
+              className="text-sm text-purple-600 font-bold hover:underline"
             >
               Mark all read
             </button>
@@ -1717,7 +1717,7 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
                            setNotifications(prev => prev.map(nx => nx.id === n.id ? { ...nx, read: true } : nx));
                         }
                      }}
-                     className={`p-4 rounded-xl border cursor-pointer transition active:scale-[0.99] ${!n.read ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'bg-slate-50 border-slate-100'}`}
+                     className={`p-4 rounded-xl border cursor-pointer transition active:scale-[0.99] ${!n.read ? 'bg-purple-50 border-purple-100 shadow-sm' : 'bg-slate-50 border-slate-100'}`}
                    >
                       <div className="flex justify-between items-start mb-1">
                         <h4 className={`font-bold text-sm ${!n.read ? 'text-slate-900' : 'text-slate-700'}`}>{n.title}</h4>
@@ -1738,12 +1738,12 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
     return (
       <div className="space-y-4">
         <div className="text-center mb-6">
-          <div className="w-20 h-20 bg-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-2xl font-bold">{userInitials}</div>
+          <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-2xl font-bold">{userInitials}</div>
           <p className="text-xs text-slate-500">{user?.email}</p>
         </div>
-        <div><label className="text-sm font-medium text-slate-700 block mb-1">Full Name</label><input type="text" value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} className="w-full p-3 bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
-        <div><label className="text-sm font-medium text-slate-700 block mb-1">Phone Number</label><input type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full p-3 bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
-        <button onClick={handleSaveProfile} disabled={isSavingProfile} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-50">
+        <div><label className="text-sm font-medium text-slate-700 block mb-1">Full Name</label><input type="text" value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} className="w-full p-3 bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500" /></div>
+        <div><label className="text-sm font-medium text-slate-700 block mb-1">Phone Number</label><input type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full p-3 bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500" /></div>
+        <button onClick={handleSaveProfile} disabled={isSavingProfile} className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-purple-700 transition disabled:opacity-50">
           {isSavingProfile ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}Save Changes
         </button>
       </div>
@@ -1767,7 +1767,7 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
               </div>
               <span className="font-medium text-slate-700">Notifications</span>
             </div>
-            <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.notifications ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+            <div className={`w-10 h-6 rounded-full relative transition-colors ${appSettings.notifications ? 'bg-purple-500' : 'bg-slate-300'}`}>
               <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${appSettings.notifications ? 'right-1' : 'left-1'}`} />
             </div>
           </button>
@@ -1782,14 +1782,14 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
             className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group"
           >
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm"><Shield className="w-5 h-5" /></div>
+              <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm"><Shield className="w-5 h-5" /></div>
               <span className="font-medium text-slate-700">Privacy & Security</span>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-400" />
           </button>
           
           <button 
-            onClick={() => alert('Thank you for rating JiraniRide!')}
+            onClick={() => alert('Thank you for rating SheMove!')}
             className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition group mt-2"
           >
             <div className="flex items-center gap-3">
@@ -1802,8 +1802,8 @@ function PanelContent({ activePanel, isLoadingHistory, rideHistory, userPhone, u
 
         {/* App Info */}
         <div className="text-center pt-6 pb-2">
-          <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3 text-emerald-600 font-bold text-xl">JR</div>
-          <h4 className="font-bold text-slate-900">JiraniRide</h4>
+          <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3 text-purple-600 font-bold text-xl">JR</div>
+          <h4 className="font-bold text-slate-900">SheMove</h4>
           <p className="text-xs text-slate-500">Version 2.0.1 (Build 452)</p>
         </div>
       </div>
@@ -1817,7 +1817,7 @@ function MenuItem({ icon: Icon, label, subtitle, badge, onClick }) {
     <button onClick={onClick} className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition group">
       <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 group-hover:bg-white group-hover:shadow-sm transition flex-shrink-0"><Icon className="w-4 h-4" /></div>
       <div className="flex-1 text-left min-w-0"><div className="font-semibold text-slate-800 text-sm truncate">{label}</div>{subtitle && <div className="text-xs text-slate-400 truncate">{subtitle}</div>}</div>
-      {badge && <span className="text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full flex-shrink-0">{badge}</span>}
+      {badge && <span className="text-[10px] font-bold bg-purple-600 text-white px-2 py-0.5 rounded-full flex-shrink-0">{badge}</span>}
     </button>
   );
 }
@@ -1828,13 +1828,13 @@ function VehicleOption({ name, price, time, icon: Icon, selected, onClick, share
       onClick={onClick} 
       className={`flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all active:scale-[0.98] ${
         selected 
-          ? 'border-emerald-600 bg-emerald-50/50 shadow-md shadow-emerald-100' 
+          ? 'border-purple-600 bg-purple-50/50 shadow-md shadow-purple-100' 
           : 'border-transparent bg-slate-50 hover:bg-slate-100 active:bg-slate-200'
       }`}
     >
       <div className="flex items-center gap-4">
         <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center shadow-sm ${
-          selected ? 'bg-white text-emerald-600' : 'bg-slate-200 text-slate-500'
+          selected ? 'bg-white text-purple-600' : 'bg-slate-200 text-slate-500'
         }`}>
           <Icon className="w-7 h-7 sm:w-8 sm:h-8" />
         </div>
@@ -1846,7 +1846,7 @@ function VehicleOption({ name, price, time, icon: Icon, selected, onClick, share
       <div className="text-right">
         <div className="font-bold text-xl text-slate-900">KES {price}</div>
         {shared && selected && <div className="text-xs text-purple-600 font-bold mt-1">40% OFF</div>}
-        {!shared && selected && <div className="text-xs text-emerald-600 font-bold mt-1">BEST VALUE</div>}
+        {!shared && selected && <div className="text-xs text-purple-600 font-bold mt-1">BEST VALUE</div>}
       </div>
     </div>
   );
@@ -1854,9 +1854,9 @@ function VehicleOption({ name, price, time, icon: Icon, selected, onClick, share
 
 function RewardItem({ title, points, available }) {
   return (
-    <div className={`flex items-center justify-between p-4 rounded-xl ${available ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50'}`}>
-      <div className="flex items-center gap-3"><Gift className={`w-5 h-5 ${available ? 'text-emerald-600' : 'text-slate-400'}`} /><span className={`font-medium ${available ? 'text-slate-900' : 'text-slate-500'}`}>{title}</span></div>
-      <div className="text-right"><span className={`text-sm font-bold ${available ? 'text-emerald-600' : 'text-slate-400'}`}>{points} pts</span>{available && <button className="block text-xs text-emerald-600 font-medium mt-0.5">Redeem →</button>}</div>
+    <div className={`flex items-center justify-between p-4 rounded-xl ${available ? 'bg-purple-50 border border-purple-200' : 'bg-slate-50'}`}>
+      <div className="flex items-center gap-3"><Gift className={`w-5 h-5 ${available ? 'text-purple-600' : 'text-slate-400'}`} /><span className={`font-medium ${available ? 'text-slate-900' : 'text-slate-500'}`}>{title}</span></div>
+      <div className="text-right"><span className={`text-sm font-bold ${available ? 'text-purple-600' : 'text-slate-400'}`}>{points} pts</span>{available && <button className="block text-xs text-purple-600 font-medium mt-0.5">Redeem →</button>}</div>
     </div>
   );
 }
@@ -1894,7 +1894,7 @@ function SaveLocationForm({ type, onSave, onCancel }) {
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder={`Enter your ${type} address...`}
-          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           autoFocus
         />
       </div>
@@ -1915,7 +1915,7 @@ function SaveLocationForm({ type, onSave, onCancel }) {
                 lat: result.lat,
                 lng: result.lng
               })}
-              className="w-full p-3 bg-slate-50 hover:bg-emerald-50 rounded-xl text-left transition border border-transparent hover:border-emerald-200"
+              className="w-full p-3 bg-slate-50 hover:bg-purple-50 rounded-xl text-left transition border border-transparent hover:border-purple-200"
             >
               <div className="font-medium text-slate-900">{result.name}</div>
               <div className="text-xs text-slate-500 truncate">{result.full_name}</div>
@@ -1943,7 +1943,7 @@ function RideTrackingView({ ride, driverInfo, onCancel }) {
   const statusConfig = {
     pending: { label: 'Finding Driver...', color: 'bg-amber-100 text-amber-700', icon: '🔍' },
     accepted: { label: 'Driver on the way', color: 'bg-blue-100 text-blue-700', icon: '🚗' },
-    arrived: { label: 'Driver arrived!', color: 'bg-emerald-100 text-emerald-700', icon: '📍' },
+    arrived: { label: 'Driver arrived!', color: 'bg-purple-100 text-purple-700', icon: '📍' },
     in_progress: { label: 'Ride in progress', color: 'bg-purple-100 text-purple-700', icon: '🛣️' },
   };
 
@@ -1981,7 +1981,7 @@ function RideTrackingView({ ride, driverInfo, onCancel }) {
             {driverInfo.phone && (
               <a 
                 href={`tel:${driverInfo.phone}`}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm hover:bg-emerald-200 transition"
+                className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold text-sm hover:bg-purple-200 transition"
               >
                 📞 Call
               </a>
@@ -1994,7 +1994,7 @@ function RideTrackingView({ ride, driverInfo, onCancel }) {
       <div className="bg-slate-50 rounded-xl p-4 space-y-3">
         <div className="flex justify-between">
           <span className="text-slate-500">Fare</span>
-          <span className="font-bold text-emerald-700">KES {ride.fare}</span>
+          <span className="font-bold text-purple-700">KES {ride.fare}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-500">Payment</span>
@@ -2043,7 +2043,7 @@ function RatingModal({ isOpen, ride, onSubmit, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-6">
         <div className="text-center">
-          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-3xl">🎉</span>
           </div>
           <h3 className="text-xl font-bold text-slate-900">Ride Complete!</h3>
@@ -2084,7 +2084,7 @@ function RatingModal({ isOpen, ride, onSubmit, onClose }) {
           <button
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50"
+            className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 disabled:opacity-50"
           >
             {isSubmitting ? 'Submitting...' : 'Submit'}
           </button>

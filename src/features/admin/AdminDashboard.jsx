@@ -247,7 +247,7 @@ export default function AdminDashboard() {
           <Menu className="w-6 h-6 text-slate-700" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center font-bold text-white text-sm">JR</div>
+          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center font-bold text-white text-sm">SM</div>
           <span className="font-bold text-lg text-slate-800">Admin</span>
         </div>
         <button onClick={fetchDashboardData} className="p-2 hover:bg-slate-100 rounded-xl">
@@ -262,8 +262,8 @@ export default function AdminDashboard() {
           <aside className="absolute left-0 top-0 h-full w-72 bg-white shadow-2xl flex flex-col animate-in slide-in-from-left">
             <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center font-bold text-white">JR</div>
-                <span className="font-bold text-lg text-slate-800">JiraniRide</span>
+                <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center font-bold text-white">SM</div>
+                <span className="font-bold text-lg text-slate-800">SheMove</span>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl">
                 <X className="w-5 h-5 text-slate-600" />
@@ -287,8 +287,8 @@ export default function AdminDashboard() {
       {/* --- DESKTOP SIDEBAR --- */}
       <aside className={`hidden lg:flex ${sidebarOpen ? 'w-64' : 'w-20'} bg-slate-50 border-r border-slate-200 transition-all duration-300 flex-col`}>
         <div className="h-16 flex items-center px-4 border-b border-slate-100">
-          <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center font-bold text-white mr-3">JR</div>
-          {sidebarOpen && <span className="font-bold text-lg text-slate-800">JiraniRide</span>}
+          <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center font-bold text-white mr-3">SM</div>
+          {sidebarOpen && <span className="font-bold text-lg text-slate-800">SheMove</span>}
         </div>
 
         <nav className="flex-1 py-6 space-y-1 px-3">
@@ -300,7 +300,7 @@ export default function AdminDashboard() {
 
         <div className="p-4 border-t border-slate-100">
            <div className="flex items-center gap-3 mb-4">
-             <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">A</div>
+             <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold">A</div>
              {sidebarOpen && (
                <div className="overflow-hidden">
                  <div className="text-sm font-bold text-slate-900 truncate">Admin User</div>
@@ -331,7 +331,7 @@ export default function AdminDashboard() {
                 placeholder="Search..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 rounded-full bg-slate-100 border-none focus:ring-2 focus:ring-emerald-500 text-sm w-64"
+                className="pl-10 pr-4 py-2 rounded-full bg-slate-100 border-none focus:ring-2 focus:ring-purple-500 text-sm w-64"
               />
             </div>
             <button onClick={fetchDashboardData} className="p-2 rounded-full hover:bg-slate-100" title="Refresh Data">
@@ -359,7 +359,7 @@ export default function AdminDashboard() {
                   title="Total Revenue" 
                   value={`KES ${stats.totalRevenue.toLocaleString()}`} 
                   icon={TrendingUp} 
-                  color="bg-emerald-500"
+                  color="bg-purple-500"
                   isLoading={isLoading}
                 />
                 <StatCard 
@@ -382,7 +382,7 @@ export default function AdminDashboard() {
                   value={stats.activeDrivers + stats.offlineDrivers} 
                   subtitle={stats.activeDrivers > 0 ? `${stats.activeDrivers} Online` : `${stats.offlineDrivers} Offline`}
                   icon={Car} 
-                  color={stats.activeDrivers > 0 ? "bg-emerald-500" : "bg-slate-400"}
+                  color={stats.activeDrivers > 0 ? "bg-purple-500" : "bg-slate-400"}
                   isLoading={isLoading}
                 />
               </div>
@@ -451,7 +451,7 @@ export default function AdminDashboard() {
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-4 lg:p-6 border-b border-slate-100 flex justify-between items-center">
                   <h3 className="font-bold text-lg text-slate-800">Recent Rides</h3>
-                  <button onClick={() => handleNavClick('rides')} className="text-emerald-600 font-bold text-sm hover:underline">View All</button>
+                  <button onClick={() => handleNavClick('rides')} className="text-purple-600 font-bold text-sm hover:underline">View All</button>
                 </div>
                 <RidesTable rides={filteredRides.slice(0, 5)} />
               </div>
@@ -483,7 +483,7 @@ export default function AdminDashboard() {
                         <td className="px-4 lg:px-6 py-4 text-slate-600 capitalize">{driver.vehicle_type || '-'}</td>
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{driver.plate_number || '-'}</td>
                         <td className="px-4 lg:px-6 py-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${driver.is_online ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${driver.is_online ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
                             {driver.is_online ? 'Online' : 'Offline'}
                           </span>
                         </td>
@@ -528,7 +528,7 @@ export default function AdminDashboard() {
                       <tr key={passenger.id} className="hover:bg-slate-50">
                         <td className="px-4 lg:px-6 py-4 font-medium text-slate-900">{passenger.full_name || 'Unknown'}</td>
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{passenger.phone || '-'}</td>
-                        <td className="px-4 lg:px-6 py-4 text-emerald-600 font-bold">{passenger.loyalty_points || 0}</td>
+                        <td className="px-4 lg:px-6 py-4 text-purple-600 font-bold">{passenger.loyalty_points || 0}</td>
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{new Date(passenger.created_at).toLocaleDateString()}</td>
                         <td className="px-4 lg:px-6 py-4 text-right">
                           <button 
@@ -587,7 +587,7 @@ export default function AdminDashboard() {
                     <div className="flex gap-2">
                       <button 
                         onClick={() => approveDriver(applicant.id)}
-                        className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition"
+                        className="p-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition"
                         title="Approve"
                       >
                         <UserCheck className="w-5 h-5" />
@@ -617,12 +617,12 @@ function NavItem({ icon: Icon, label, active, badge, isOpen, onClick }) {
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${active ? 'bg-emerald-100 text-emerald-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${active ? 'bg-purple-100 text-purple-700 font-bold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
     >
       <Icon className="w-5 h-5 flex-shrink-0" />
       {isOpen && <span className="flex-1 text-left whitespace-nowrap">{label}</span>}
       {isOpen && badge !== undefined && (
-        <span className="bg-emerald-600 text-white text-xs px-2 py-0.5 rounded-full">{badge}</span>
+        <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">{badge}</span>
       )}
     </button>
   );
@@ -647,7 +647,7 @@ function StatCard({ title, value, subtitle, icon: Icon, color, isLoading }) {
 
 function RidesTable({ rides }) {
   const statusColors = {
-    completed: 'bg-emerald-100 text-emerald-700',
+    completed: 'bg-purple-100 text-purple-700',
     ongoing: 'bg-blue-100 text-blue-700',
     accepted: 'bg-blue-100 text-blue-700',
     pending: 'bg-yellow-100 text-yellow-700',

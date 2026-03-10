@@ -47,7 +47,7 @@ export const initiateMpesaPayment = async (
         rideId: rideId,
         accountReference: rideId
           ? `Ride-${rideId.slice(0, 8)}`
-          : `JiraniRide-${Date.now()}`,
+          : `SheMove-${Date.now()}`,
       },
     });
 

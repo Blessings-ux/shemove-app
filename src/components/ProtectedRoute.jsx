@@ -25,8 +25,6 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
           if (profile.role === 'admin') return <Navigate to="/admin" replace />;
           if (profile.role === 'driver') return <Navigate to="/driver" replace />;
           if (profile.role === 'passenger') return <Navigate to="/passenger" replace />;
-          
-          return <Navigate to="/" replace />;
       }
   }
 

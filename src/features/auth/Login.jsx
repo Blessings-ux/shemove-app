@@ -69,9 +69,6 @@ export default function Login() {
         case 'driver':
           navigate('/driver');
           break;
-        case 'fleet_owner':
-          navigate('/fleet');
-          break;
         default:
           navigate('/passenger');
       }
@@ -131,7 +128,7 @@ export default function Login() {
 
       <div className="text-center text-sm text-gray-600">
         Don't have an account?{' '}
-        <Link to="/signup" className="font-semibold text-emerald-600 hover:text-emerald-500">
+        <Link to="/signup" className="font-semibold text-purple-600 hover:text-purple-500">
           Sign up
         </Link>
       </div>
