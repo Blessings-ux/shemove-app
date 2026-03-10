@@ -51,6 +51,13 @@ export default function DriverDashboard() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Verification State
+  const [verificationGender, setVerificationGender] = useState('');
+  const [idPhotoFile, setIdPhotoFile] = useState(null);
+  const [selfieFile, setSelfieFile] = useState(null);
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState('unverified');
+
   // Dark mode effect
   useEffect(() => {
     if (appSettings.darkMode) {
@@ -94,6 +101,13 @@ export default function DriverDashboard() {
         if (driverRes.data) {
           setDriverData(driverRes.data);
           setIsOnline(driverRes.data.is_online);
+          // Initialize verification state
+          if (driverRes.data.verification_status) {
+            setVerificationStatus(driverRes.data.verification_status);
+          }
+          if (driverRes.data.gender) {
+            setVerificationGender(driverRes.data.gender);
+          }
         } else if (driverRes.error?.code === 'PGRST116') {
           // Auto-create driver record if missing
           const { data: newDriver } = await supabase
@@ -625,6 +639,86 @@ export default function DriverDashboard() {
     }
   };
 
+  // Handle verification submission
+  const handleSubmitVerification = async () => {
+    if (!verificationGender) {
+      alert('Please select your gender.');
+      return;
+    }
+    if (!idPhotoFile && !driverData?.id_photo_url) {
+      alert('Please upload your ID / Passport photo.');
+      return;
+    }
+    if (!selfieFile && !driverData?.selfie_url) {
+      alert('Please upload a selfie with your ID.');
+      return;
+    }
+
+    setIsSubmittingVerification(true);
+    try {
+      let idPhotoUrl = driverData?.id_photo_url || null;
+      let selfieUrl = driverData?.selfie_url || null;
+
+      // Upload ID photo if new file selected
+      if (idPhotoFile) {
+        const idExt = idPhotoFile.name.split('.').pop();
+        const idPath = `${user.id}/id_photo.${idExt}`;
+        const { error: idUploadError } = await supabase.storage
+          .from('driver-verifications')
+          .upload(idPath, idPhotoFile, { upsert: true });
+        if (idUploadError) throw idUploadError;
+
+        const { data: idUrlData } = supabase.storage
+          .from('driver-verifications')
+          .getPublicUrl(idPath);
+        idPhotoUrl = idUrlData?.publicUrl || idPath;
+      }
+
+      // Upload selfie if new file selected
+      if (selfieFile) {
+        const selfieExt = selfieFile.name.split('.').pop();
+        const selfiePath = `${user.id}/selfie.${selfieExt}`;
+        const { error: selfieUploadError } = await supabase.storage
+          .from('driver-verifications')
+          .upload(selfiePath, selfieFile, { upsert: true });
+        if (selfieUploadError) throw selfieUploadError;
+
+        const { data: selfieUrlData } = supabase.storage
+          .from('driver-verifications')
+          .getPublicUrl(selfiePath);
+        selfieUrl = selfieUrlData?.publicUrl || selfiePath;
+      }
+
+      // Update driver record
+      const { error: updateError } = await supabase
+        .from('drivers')
+        .update({
+          gender: verificationGender,
+          id_photo_url: idPhotoUrl,
+          selfie_url: selfieUrl,
+          verification_status: 'pending'
+        })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setVerificationStatus('pending');
+      setDriverData(prev => ({
+        ...prev,
+        gender: verificationGender,
+        id_photo_url: idPhotoUrl,
+        selfie_url: selfieUrl,
+        verification_status: 'pending'
+      }));
+      alert('Verification submitted! Our team will review your documents shortly.');
+    } catch (error) {
+      console.error('Verification submission error:', error);
+      alert(`Verification failed: ${error.message || 'Please try again.'}`);
+    } finally {
+      setIsSubmittingVerification(false);
+    }
+  };
+
   // Fetch driver's active carpool offers
   const fetchActiveOffers = async () => {
     if (!user) return;
@@ -1116,45 +1210,106 @@ export default function DriverDashboard() {
                   <Shield className="w-5 h-5 text-purple-600" />
                   <h3 className="font-bold text-slate-900">Driver Verification</h3>
                 </div>
-                <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold">
-                  Pending
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  verificationStatus === 'verified' ? 'bg-green-100 text-green-700' :
+                  verificationStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                  verificationStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                  'bg-slate-100 text-slate-600'
+                }`}>
+                  {verificationStatus === 'verified' ? '✅ Verified' :
+                   verificationStatus === 'pending' ? '⏳ Pending Review' :
+                   verificationStatus === 'rejected' ? '❌ Rejected' :
+                   'Not Submitted'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mb-4">
-                SheMove requires all drivers to be verified female drivers. Please confirm your gender and upload a valid ID for verification.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Gender</label>
-                  <select className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                    <option value="">Select gender</option>
-                    <option value="female">Female</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">ID / Passport Photo</label>
-                  <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
-                    <input type="file" accept="image/*" className="hidden" id="id-upload" />
-                    <label htmlFor="id-upload" className="cursor-pointer">
-                      <div className="text-purple-600 font-bold text-sm">Click to upload</div>
-                      <div className="text-xs text-slate-400 mt-1">JPG, PNG up to 5MB</div>
-                    </label>
+
+              {verificationStatus === 'verified' ? (
+                <p className="text-sm text-green-700 font-medium">Your identity has been verified. You are approved to drive on SheMove.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500 mb-4">
+                    SheMove requires all drivers to be verified female drivers. Please confirm your gender and upload a valid ID for verification.
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Gender</label>
+                      <select
+                        value={verificationGender}
+                        onChange={(e) => setVerificationGender(e.target.value)}
+                        className="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        disabled={verificationStatus === 'pending'}
+                      >
+                        <option value="">Select gender</option>
+                        <option value="female">Female</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">ID / Passport Photo</label>
+                      <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          id="id-upload"
+                          disabled={verificationStatus === 'pending'}
+                          onChange={(e) => setIdPhotoFile(e.target.files?.[0] || null)}
+                        />
+                        <label htmlFor="id-upload" className="cursor-pointer">
+                          {idPhotoFile ? (
+                            <div className="text-purple-700 font-bold text-sm">✅ {idPhotoFile.name}</div>
+                          ) : driverData?.id_photo_url ? (
+                            <div className="text-purple-700 font-bold text-sm">✅ ID Photo uploaded</div>
+                          ) : (
+                            <>
+                              <div className="text-purple-600 font-bold text-sm">Click to upload</div>
+                              <div className="text-xs text-slate-400 mt-1">JPG, PNG up to 5MB</div>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Selfie with ID</label>
+                      <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          id="selfie-upload"
+                          disabled={verificationStatus === 'pending'}
+                          onChange={(e) => setSelfieFile(e.target.files?.[0] || null)}
+                        />
+                        <label htmlFor="selfie-upload" className="cursor-pointer">
+                          {selfieFile ? (
+                            <div className="text-purple-700 font-bold text-sm">✅ {selfieFile.name}</div>
+                          ) : driverData?.selfie_url ? (
+                            <div className="text-purple-700 font-bold text-sm">✅ Selfie uploaded</div>
+                          ) : (
+                            <>
+                              <div className="text-purple-600 font-bold text-sm">Click to upload selfie</div>
+                              <div className="text-xs text-slate-400 mt-1">Hold your ID next to your face</div>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                    {verificationStatus !== 'pending' && (
+                      <button
+                        onClick={handleSubmitVerification}
+                        disabled={isSubmittingVerification || !verificationGender}
+                        className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50"
+                      >
+                        {isSubmittingVerification ? 'Uploading...' : 'Submit for Verification'}
+                      </button>
+                    )}
+                    {verificationStatus === 'rejected' && (
+                      <p className="text-xs text-red-500 font-medium text-center">
+                        Your previous submission was rejected. Please re-upload valid documents.
+                      </p>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase">Selfie with ID</label>
-                  <div className="mt-1 border-2 border-dashed border-purple-200 rounded-xl p-4 text-center bg-white hover:border-purple-400 transition cursor-pointer">
-                    <input type="file" accept="image/*" className="hidden" id="selfie-upload" />
-                    <label htmlFor="selfie-upload" className="cursor-pointer">
-                      <div className="text-purple-600 font-bold text-sm">Click to upload selfie</div>
-                      <div className="text-xs text-slate-400 mt-1">Hold your ID next to your face</div>
-                    </label>
-                  </div>
-                </div>
-                <button className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition">
-                  Submit for Verification
-                </button>
-              </div>
+                </>
+              )}
             </div>
 
             {/* Carpool Offers Section */}
