@@ -19,7 +19,7 @@ const LandingPage = () => {
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center space-x-8">
               <a href="#features" className="text-gray-600 hover:text-purple-600 font-medium">Features</a>
-              <a href="#sacco" className="text-gray-600 hover:text-purple-600 font-medium">SACCO Rewards</a>
+              <a href="#sacco" className="text-gray-600 hover:text-purple-600 font-medium">Rewards</a>
               <Link to="/login" className="text-gray-600 hover:text-purple-600 font-medium">Log in</Link>
               <Link to="/signup" className="bg-purple-600 text-white px-5 py-2 rounded-full font-medium hover:bg-purple-700 transition-colors">
                 Sign up
@@ -53,7 +53,7 @@ const LandingPage = () => {
                 className="block text-gray-600 hover:text-purple-600 font-medium py-2"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                SACCO Rewards
+                Rewards
               </a>
               <hr className="my-2 border-gray-100" />
               <Link 
@@ -184,37 +184,74 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* SACCO Rewards */}
-      <section id="sacco" className="py-12 sm:py-20 bg-white relative overflow-hidden">
+      {/* Loyalty & Rewards Programme */}
+      <section id="sacco" className="py-16 sm:py-24 bg-white relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-purple-900 rounded-2xl sm:rounded-3xl p-6 sm:p-8 md:p-12 lg:p-16 text-white relative overflow-hidden shadow-2xl">
-            {/* Decorative circles */}
-            <div className="absolute top-0 right-0 -mr-20 -mt-20 w-60 sm:w-80 h-60 sm:h-80 rounded-full bg-purple-800 opacity-50 blur-3xl"></div>
-            <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-40 sm:w-60 h-40 sm:h-60 rounded-full bg-purple-500 opacity-20 blur-3xl"></div>
+          
+          {/* Section Header */}
+          <div className="text-center mb-10 sm:mb-16">
+            <div className="inline-flex items-center gap-2 bg-purple-50 px-4 py-2 rounded-full mb-4 border border-purple-100">
+              <Coins className="w-4 h-4 text-purple-600" />
+              <span className="text-purple-700 font-semibold text-sm">SheMove Rewards Programme</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+              Every Ride Builds Your Future
+            </h2>
+            <p className="text-gray-500 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+              Kenya's first SACCO-inspired rewards system built into a ride-hailing platform. 
+              Earn loyalty points on every trip and unlock real financial benefits.
+            </p>
+          </div>
 
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8 sm:gap-12">
-              <div className="md:w-1/2 text-center md:text-left">
-                <div className="inline-flex items-center gap-2 bg-purple-800/50 px-3 sm:px-4 py-2 rounded-full mb-4 sm:mb-6 border border-purple-700">
-                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" />
-                  <span className="text-purple-100 font-medium text-sm sm:text-base">SheMove SACCO Rewards</span>
-                </div>
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 sm:mb-6">Ride more, Earn more.</h2>
-                <p className="text-purple-100 text-base sm:text-lg mb-6 sm:mb-8 leading-relaxed">
-                  Join the first ride-hailing community that functions like a SACCO. 
-                  Accumulate points for every kilometer and redeem them for free trips or cash back.
-                </p>
-                <Link to="/signup" className="inline-flex items-center bg-yellow-400 text-purple-900 px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold hover:bg-yellow-300 transition-colors text-sm sm:text-base">
-                  Start Earning Today <ChevronRight className="ml-2 w-4 h-4 sm:w-5 sm:h-5" />
-                </Link>
+          {/* Benefits Grid */}
+          <div className="grid sm:grid-cols-3 gap-6 sm:gap-8 mb-10 sm:mb-14">
+            <div className="text-center p-6 rounded-2xl bg-purple-50/60 border border-purple-100/50">
+              <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Coins className="w-7 h-7 text-purple-600" />
               </div>
-              <div className="md:w-1/2 flex justify-center">
-                <div className="relative">
-                   <div className="absolute inset-0 bg-yellow-400 blur-[60px] opacity-20 rounded-full"></div>
-                   <Coins className="w-32 h-32 sm:w-40 sm:h-40 lg:w-48 lg:h-48 text-yellow-400 drop-shadow-lg" />
-                </div>
+              <h3 className="font-bold text-gray-900 text-lg mb-2">Earn Per Kilometre</h3>
+              <p className="text-gray-500 text-sm leading-relaxed">
+                Accumulate loyalty points automatically for every kilometre you ride or drive with SheMove.
+              </p>
+            </div>
+            <div className="text-center p-6 rounded-2xl bg-purple-50/60 border border-purple-100/50">
+              <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Wallet className="w-7 h-7 text-purple-600" />
               </div>
+              <h3 className="font-bold text-gray-900 text-lg mb-2">Redeem Anytime</h3>
+              <p className="text-gray-500 text-sm leading-relaxed">
+                Convert your points into free rides, fare discounts, or withdraw directly to M-Pesa.
+              </p>
+            </div>
+            <div className="text-center p-6 rounded-2xl bg-purple-50/60 border border-purple-100/50">
+              <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-7 h-7 text-purple-600" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-lg mb-2">Community Driven</h3>
+              <p className="text-gray-500 text-sm leading-relaxed">
+                Built on SACCO principles — the more our community grows, the greater the rewards for everyone.
+              </p>
             </div>
           </div>
+
+          {/* CTA Card */}
+          <div className="bg-gradient-to-br from-purple-700 to-purple-900 rounded-2xl sm:rounded-3xl p-8 sm:p-12 text-white relative overflow-hidden shadow-2xl">
+            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 rounded-full bg-purple-600 opacity-30 blur-3xl"></div>
+            <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-36 h-36 rounded-full bg-purple-400 opacity-15 blur-3xl"></div>
+            
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="text-center md:text-left">
+                <h3 className="text-2xl sm:text-3xl font-bold mb-3">Ready to start earning?</h3>
+                <p className="text-purple-200 text-base sm:text-lg max-w-lg">
+                  Sign up today and earn loyalty points from your very first ride. It's free to join.
+                </p>
+              </div>
+              <Link to="/signup" className="inline-flex items-center bg-white text-purple-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold hover:bg-purple-50 transition-colors text-sm sm:text-base shadow-lg whitespace-nowrap">
+                Join SheMove <ChevronRight className="ml-2 w-5 h-5" />
+              </Link>
+            </div>
+          </div>
+
         </div>
       </section>
 
