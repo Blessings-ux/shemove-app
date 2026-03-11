@@ -7,8 +7,8 @@ export default function AuthLayout() {
       <div className="hidden lg:flex w-1/2 bg-gray-900 justify-center items-center relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-purple-600/80 to-purple-900/80 z-10" />
         <img 
-          src="https://images.unsplash.com/photo-1558981403-c5f9899a28bc?q=80&w=2070&auto=format&fit=crop" 
-          alt="Motorcycle transport" 
+          src="/assets/auth-hero.png" 
+          alt="SheMove - Safe rides for women" 
           className="absolute inset-0 w-full h-full object-cover"
         />
         <div className="z-20 text-white p-12 max-w-lg">
