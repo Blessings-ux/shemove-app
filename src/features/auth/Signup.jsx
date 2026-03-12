@@ -74,9 +74,6 @@ export default function Signup() {
         case 'driver':
           navigate('/driver');
           break;
-        case 'fleet_owner':
-          navigate('/fleet');
-          break;
         case 'passenger':
         default:
           navigate('/passenger');
@@ -91,7 +88,7 @@ export default function Signup() {
   if (success) {
     return (
       <div className="text-center space-y-4">
-        <h2 className="text-2xl font-bold text-emerald-600">Account Created!</h2>
+        <h2 className="text-2xl font-bold text-purple-600">Account Created!</h2>
         <p className="text-gray-600">
           Your account has been successfully created. Please check your email to verify your account, then log in.
         </p>
@@ -107,7 +104,7 @@ export default function Signup() {
       <div className="text-center">
         <h2 className="text-3xl font-bold tracking-tight text-gray-900">Create an account</h2>
         <p className="mt-2 text-sm text-gray-600">
-          Join JiraniRide today
+          Join SheMove today
         </p>
       </div>
 
@@ -162,42 +159,30 @@ export default function Signup() {
 
         <div className="space-y-2">
            <label className="text-sm font-medium">I want to be a:</label>
-           <div className="grid grid-cols-3 gap-3">
-             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50 text-center">
+           <div className="grid grid-cols-2 gap-3">
+             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-purple-600 has-[:checked]:bg-purple-50 text-center">
                <input 
                  type="radio" 
                  name="role" 
                  value="passenger"
                  checked={formData.role === 'passenger'}
                  onChange={(e) => setFormData({...formData, role: e.target.value})}
-                 className="accent-primary"
+                 className="accent-purple-600"
                />
                <span className="font-medium text-sm">Passenger</span>
                <span className="text-xs text-slate-500">Book rides</span>
              </label>
-             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50 text-center">
+             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-purple-600 has-[:checked]:bg-purple-50 text-center">
                <input 
                  type="radio" 
                  name="role" 
                  value="driver"
                  checked={formData.role === 'driver'}
                  onChange={(e) => setFormData({...formData, role: e.target.value})}
-                 className="accent-primary"
+                 className="accent-purple-600"
                />
                <span className="font-medium text-sm">Driver</span>
                <span className="text-xs text-slate-500">Earn money</span>
-             </label>
-             <label className="flex flex-col items-center gap-2 border p-3 rounded-lg cursor-pointer has-[:checked]:border-purple-600 has-[:checked]:bg-purple-50 text-center">
-               <input 
-                 type="radio" 
-                 name="role" 
-                 value="fleet_owner"
-                 checked={formData.role === 'fleet_owner'}
-                 onChange={(e) => setFormData({...formData, role: e.target.value})}
-                 className="accent-purple-600"
-               />
-               <span className="font-medium text-sm">Fleet Owner</span>
-               <span className="text-xs text-slate-500">Manage vehicles</span>
              </label>
            </div>
         </div>
@@ -209,7 +194,7 @@ export default function Signup() {
 
       <div className="text-center text-sm text-gray-600">
         Already have an account?{' '}
-        <Link to="/login" className="font-semibold text-emerald-600 hover:text-emerald-500">
+        <Link to="/login" className="font-semibold text-purple-600 hover:text-purple-500">
           Sign in
         </Link>
       </div>
