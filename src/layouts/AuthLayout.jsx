@@ -5,16 +5,16 @@ export default function AuthLayout() {
     <div className="flex min-h-screen bg-gray-50">
       {/* Left Side - Image/Branding (Hidden on mobile) */}
       <div className="hidden lg:flex w-1/2 bg-gray-900 justify-center items-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/80 to-emerald-900/80 z-10" />
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-600/80 to-purple-900/80 z-10" />
         <img 
-          src="https://images.unsplash.com/photo-1558981403-c5f9899a28bc?q=80&w=2070&auto=format&fit=crop" 
-          alt="Motorcycle transport" 
+          src="/assets/auth-hero.png" 
+          alt="SheMove - Safe rides for women" 
           className="absolute inset-0 w-full h-full object-cover"
         />
         <div className="z-20 text-white p-12 max-w-lg">
-          <h1 className="text-4xl font-bold mb-6">JiraniRide</h1>
+          <h1 className="text-4xl font-bold mb-6">SheMove</h1>
           <p className="text-xl text-gray-200">
-            Safe, reliable, and community-driven transport for everyone. Join the movement today.
+            Safe, reliable rides by women, for women. Join the movement today.
           </p>
         </div>
       </div>
