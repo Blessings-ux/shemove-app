@@ -16,15 +16,25 @@ export default function ForgotPassword() {
     setIsLoading(true);
 
     try {
+      // Clean up the email to prevent any invisible unicode or trailing spaces/periods
+      const cleanEmail = email.toLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, '').trim().replace(/\.$/, '');
+      console.log(`Sending reset for email: '${cleanEmail}' (length: ${cleanEmail.length})`);
+
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email.trim(),
+        cleanEmail,
         {
           redirectTo: `${window.location.origin}/reset-password`,
         }
       );
 
       if (resetError) {
-        setError(resetError.message || 'Failed to send reset email');
+        console.error("Supabase Reset Error:", resetError);
+        // Sometimes Supabase returns an obscure validation error if an email isn't in auth.users
+        if (resetError.message.includes('is invalid')) {
+          setError(`Supabase couldn't validate this email. Please check if it was typed correctly and that the account exists and is confirmed.`);
+        } else {
+          setError(resetError.message || 'Failed to send reset email');
+        }
         setIsLoading(false);
         return;
       }
