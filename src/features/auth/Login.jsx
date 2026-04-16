@@ -110,9 +110,14 @@ export default function Login() {
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-            Password
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Password
+            </label>
+            <Link to="/forgot-password" className="text-sm font-medium text-purple-600 hover:text-purple-500">
+              Forgot password?
+            </Link>
+          </div>
           <Input 
             type="password"
             value={formData.password}
