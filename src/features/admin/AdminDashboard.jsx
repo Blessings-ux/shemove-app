@@ -35,6 +35,8 @@ export default function AdminDashboard() {
   const [allPassengers, setAllPassengers] = useState([]);
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   // Fetch Dashboard Data
   useEffect(() => {
@@ -167,37 +169,49 @@ export default function AdminDashboard() {
     }
   };
 
-  const deleteUser = async (userId, type) => {
-    if (!window.confirm(`Are you sure you want to delete this ${type}? This action cannot be undone.`)) {
-      return;
-    }
+  const deleteUser = async (userId, type, displayName) => {
+    setIsDeletingUser(true);
 
     try {
-      // Delete from profiles table - this will cascade to other tables if migration is run
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      const { error: rpcError } = await supabase.rpc('admin_delete_user', {
+        target_user_id: userId,
+      });
 
-      if (error) {
-        throw error;
+      if (rpcError) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .delete()
+          .eq('id', userId);
+
+        if (profileError) {
+          throw profileError;
+        }
       }
 
-      // Update local state
       if (type === 'driver') {
-        setAllDrivers(prev => prev.filter(d => d.id !== userId));
-        setStats(prev => ({
+        setAllDrivers((prev) => prev.filter((d) => d.id !== userId));
+        setStats((prev) => ({
           ...prev,
-          activeDrivers: prev.activeDrivers - (allDrivers.find(d => d.id === userId)?.is_online ? 1 : 0),
-          offlineDrivers: prev.offlineDrivers - (allDrivers.find(d => d.id === userId)?.is_online ? 0 : 1)
+          activeDrivers:
+            prev.activeDrivers -
+            (allDrivers.find((d) => d.id === userId)?.is_online ? 1 : 0),
+          offlineDrivers:
+            prev.offlineDrivers -
+            (allDrivers.find((d) => d.id === userId)?.is_online ? 0 : 1),
         }));
       } else {
-        setAllPassengers(prev => prev.filter(p => p.id !== userId));
-        setStats(prev => ({ ...prev, totalPassengers: prev.totalPassengers - 1 }));
+        setAllPassengers((prev) => prev.filter((p) => p.id !== userId));
+        setStats((prev) => ({ ...prev, totalPassengers: prev.totalPassengers - 1 }));
       }
-      
-      alert(`${type === 'driver' ? 'Driver' : 'Passenger'} deleted successfully.`);
-      
+
+      setUserToDelete(null);
     } catch (error) {
       console.error('Error deleting user:', error);
-      alert(`Failed to delete user: ${error.message} \n\nMake sure you have run the database migration to enable cascade deleting.`);
+      alert(
+        `Failed to delete user: ${error.message}\n\nEnsure migration 017_pickup_coordination.sql has been applied.`,
+      );
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -473,6 +487,7 @@ export default function AdminDashboard() {
                       <th className="px-4 lg:px-6 py-3 font-semibold">Vehicle</th>
                       <th className="px-4 lg:px-6 py-3 font-semibold">Plate</th>
                       <th className="px-4 lg:px-6 py-3 font-semibold">Status</th>
+                      <th className="px-4 lg:px-6 py-3 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -489,17 +504,21 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-4 lg:px-6 py-4 text-right">
                           <button 
-                            onClick={() => deleteUser(driver.id, 'driver')}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                            title="Delete Driver"
+                            onClick={() => setUserToDelete({
+                              id: driver.id,
+                              type: 'driver',
+                              name: driver.profiles?.full_name || 'Unknown driver',
+                            })}
+                            className="inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-600 transition hover:bg-red-100"
                           >
-                            <UserX className="w-5 h-5" />
+                            <UserX className="w-4 h-4" />
+                            Delete
                           </button>
                         </td>
                       </tr>
                     ))}
                     {filteredDrivers.length === 0 && (
-                      <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-400">No drivers found</td></tr>
+                      <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-400">No drivers found</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -521,6 +540,7 @@ export default function AdminDashboard() {
                       <th className="px-4 lg:px-6 py-3 font-semibold">Phone</th>
                       <th className="px-4 lg:px-6 py-3 font-semibold">Points</th>
                       <th className="px-4 lg:px-6 py-3 font-semibold">Joined</th>
+                      <th className="px-4 lg:px-6 py-3 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -532,17 +552,21 @@ export default function AdminDashboard() {
                         <td className="px-4 lg:px-6 py-4 text-slate-600">{new Date(passenger.created_at).toLocaleDateString()}</td>
                         <td className="px-4 lg:px-6 py-4 text-right">
                           <button 
-                            onClick={() => deleteUser(passenger.id, 'passenger')}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                            title="Delete User"
+                            onClick={() => setUserToDelete({
+                              id: passenger.id,
+                              type: 'passenger',
+                              name: passenger.full_name || 'Unknown passenger',
+                            })}
+                            className="inline-flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-600 transition hover:bg-red-100"
                           >
-                            <UserX className="w-5 h-5" />
+                            <UserX className="w-4 h-4" />
+                            Delete
                           </button>
                         </td>
                       </tr>
                     ))}
                     {filteredPassengers.length === 0 && (
-                      <tr><td colSpan="4" className="px-6 py-8 text-center text-slate-400">No passengers found</td></tr>
+                      <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-400">No passengers found</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -603,6 +627,37 @@ export default function AdminDashboard() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {userToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !isDeletingUser && setUserToDelete(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+              <UserX className="h-6 w-6 text-red-600" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900">Delete user?</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              This will permanently remove <span className="font-bold">{userToDelete.name}</span> ({userToDelete.type}) and their account data. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="flex-1 rounded-xl border border-slate-200 py-3 font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteUser(userToDelete.id, userToDelete.type, userToDelete.name)}
+                disabled={isDeletingUser}
+                className="flex-1 rounded-xl bg-red-600 py-3 font-bold text-white transition hover:bg-red-700 disabled:opacity-60"
+              >
+                {isDeletingUser ? 'Deleting...' : 'Delete User'}
+              </button>
             </div>
           </div>
         </div>

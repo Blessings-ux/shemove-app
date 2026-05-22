@@ -6,6 +6,12 @@ import { supabase, isAbortError } from '../../services/supabase';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useAuthStore } from '../../store/authStore';
 import { reverseGeocode } from '../../services/geocoding';
+import PickupFlowStepper from '../../components/pickup/PickupFlowStepper';
+import {
+  canDriverMarkArrived,
+  canDriverStartRide,
+  getDriverStatusMessage,
+} from '../../utils/pickupFlow';
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
@@ -122,7 +128,7 @@ export default function DriverDashboard() {
         if (ridesRes.data) {
           // Filter active rides (accepted/in_progress)
           const active = ridesRes.data.filter(r => 
-            r.driver_id === user.id && ['accepted', 'in_progress', 'arrived'].includes(r.status)
+            r.driver_id === user.id && ['accepted', 'arrived', 'passenger_arrived', 'in_progress'].includes(r.status)
           );
           setActiveRides(active);
         }
@@ -212,6 +218,36 @@ export default function DriverDashboard() {
       }
     };
   }, [isOnline, user, canAcceptMore, incomingRequest]);
+
+  // Subscribe to updates on active rides (e.g. passenger confirms arrival)
+  useEffect(() => {
+    if (!user || activeRides.length === 0) return;
+
+    const rideIds = activeRides.map((r) => r.id);
+    const channel = supabase
+      .channel(`driver-active-rides-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rides',
+        },
+        (payload) => {
+          if (!rideIds.includes(payload.new.id)) return;
+          setActiveRides((prev) =>
+            prev.map((ride) =>
+              ride.id === payload.new.id ? { ...ride, ...payload.new } : ride,
+            ),
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, activeRides.map((r) => r.id).join(',')]);
 
   // Real-time subscription (backup - works if Supabase realtime is enabled)
   useEffect(() => {
@@ -475,8 +511,11 @@ export default function DriverDashboard() {
     }
   };
 
-  // Start the ride (passenger is in vehicle)
+  // Start the ride (passenger confirmed at pickup)
   const startRide = async (rideId) => {
+    const ride = activeRides.find((r) => r.id === rideId);
+    if (!ride || !canDriverStartRide(ride.status)) return;
+
     try {
       const { error } = await supabase
         .from('rides')
@@ -1695,19 +1734,39 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
           </div>
 
           {/* Render each active ride as a card */}
-          {activeRides.map((ride) => (
+          {activeRides.map((ride) => {
+            const statusMessage = getDriverStatusMessage(ride);
+            const trackingStatus = ['accepted', 'arrived', 'passenger_arrived', 'in_progress'].includes(ride.status)
+              ? ride.status
+              : 'accepted';
+
+            return (
             <div key={ride.id} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+              <div className="mb-4 rounded-xl bg-slate-900 px-4 py-3 text-white">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-300">
+                  Pickup coordination
+                </div>
+                <div className="mt-1 font-bold">{statusMessage.title}</div>
+                <div className="mt-1 text-sm text-slate-300">{statusMessage.subtitle}</div>
+              </div>
+
+              <div className="mb-4">
+                <PickupFlowStepper status={trackingStatus} perspective="driver" />
+              </div>
+
               {/* Status Badge */}
               <div className="flex items-center justify-between mb-3">
                 <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
                   ride.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
                   ride.status === 'arrived' ? 'bg-amber-100 text-amber-700' :
+                  ride.status === 'passenger_arrived' ? 'bg-green-100 text-green-700' :
                   ride.status === 'in_progress' ? 'bg-purple-100 text-purple-700' :
                   'bg-slate-100 text-slate-700'
                 }`}>
-                  {ride.status === 'accepted' ? '📍 En Route to Pickup' :
-                   ride.status === 'arrived' ? '⏳ Waiting for Passenger' :
-                   ride.status === 'in_progress' ? '🚗 Ride in Progress' :
+                  {ride.status === 'accepted' ? 'En Route to Pickup' :
+                   ride.status === 'arrived' ? 'Waiting for Passenger' :
+                   ride.status === 'passenger_arrived' ? 'Passenger Is Here' :
+                   ride.status === 'in_progress' ? 'Ride in Progress' :
                    ride.status}
                 </div>
                 {ride.ride_type === 'shared' && (
@@ -1749,7 +1808,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 <div className="font-black text-xl text-purple-700">KES {ride.fare}</div>
                 
                 {/* Status-based action buttons */}
-                {ride.status === 'accepted' && (
+                {canDriverMarkArrived(ride.status) && (
                   <button 
                     onClick={() => markArrived(ride.id)}
                     className="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm hover:bg-amber-600 transition flex items-center gap-2"
@@ -1760,6 +1819,12 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 )}
                 
                 {ride.status === 'arrived' && (
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                    Waiting for passenger to tap I'm Here
+                  </div>
+                )}
+
+                {canDriverStartRide(ride.status) && (
                   <button 
                     onClick={() => startRide(ride.id)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition flex items-center gap-2"
@@ -1780,7 +1845,7 @@ function DashboardContent({ isOnline, handleGoOnline, handleGoOffline, incomingR
                 )}
               </div>
             </div>
-          ))}
+          );})}
 
           {/* Go Offline button */}
           <button 
