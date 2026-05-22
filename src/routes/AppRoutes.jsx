@@ -3,6 +3,8 @@ import AppLayout from '../layouts/AppLayout';
 import AuthLayout from '../layouts/AuthLayout';
 import Login from '../features/auth/Login';
 import Signup from '../features/auth/Signup';
+import ForgotPassword from '../features/auth/ForgotPassword';
+import ResetPassword from '../features/auth/ResetPassword';
 import LandingPage from '../features/landing/LandingPage';
 import PassengerHome from '../features/passenger/PassengerHome';
 import DriverDashboard from '../features/driver/DriverDashboard';
@@ -19,6 +21,8 @@ const AppRoutes = () => {
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Route>
       
       {/* Full Screen Routes (Passenger & Driver & Admin) */}

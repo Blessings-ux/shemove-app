@@ -10,6 +10,11 @@ import { calculateDistance, calculateFare, getFareBreakdown, PRICE_PER_KM, MIN_F
 import { searchLocation, reverseGeocode } from '../../services/geocoding';
 
 import { getRoute } from '../../services/routing';
+import PickupFlowStepper from '../../components/pickup/PickupFlowStepper';
+import {
+  canPassengerConfirmArrival,
+  getPassengerStatusMessage,
+} from '../../utils/pickupFlow';
 
 export default function PassengerHome() {
   // Debug log
@@ -658,6 +663,40 @@ export default function PassengerHome() {
     setDestination('');
   };
 
+  const markPassengerArrived = async (rideId) => {
+    try {
+      const arrivedAt = new Date().toISOString();
+      const { error } = await supabase
+        .from('rides')
+        .update({
+          status: 'passenger_arrived',
+          passenger_arrived_at: arrivedAt,
+        })
+        .eq('id', rideId);
+
+      if (error) throw error;
+
+      setCurrentRide((prev) =>
+        prev
+          ? { ...prev, status: 'passenger_arrived', passenger_arrived_at: arrivedAt }
+          : prev,
+      );
+
+      if (currentRide?.driver_id) {
+        await supabase.from('notifications').insert({
+          user_id: currentRide.driver_id,
+          type: 'passenger_arrived',
+          title: 'Passenger at Pickup',
+          message: `${profile?.full_name || 'Your passenger'} confirmed they are at the pickup point.`,
+          data: { ride_id: rideId },
+        });
+      }
+    } catch (error) {
+      console.error('Error confirming passenger arrival:', error);
+      alert('Could not confirm your arrival. Please try again.');
+    }
+  };
+
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     try {
@@ -782,6 +821,8 @@ export default function PassengerHome() {
               carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
               setPickupLocation={setPickupLocation}
               setShowPaymentModal={setShowPaymentModal}
+              driverInfo={driverInfo}
+              markPassengerArrived={markPassengerArrived}
             />
           </div>
           {/* Safe area for iOS */}
@@ -867,6 +908,8 @@ export default function PassengerHome() {
                 carpoolSearchQuery={carpoolSearchQuery} setCarpoolSearchQuery={setCarpoolSearchQuery}
                 setPickupLocation={setPickupLocation}
                 setShowPaymentModal={setShowPaymentModal}
+                driverInfo={driverInfo}
+                markPassengerArrived={markPassengerArrived}
               />
             )}
           </div>
@@ -976,7 +1019,7 @@ function QuickAction({ icon: Icon, label, onClick, badge }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal, driverInfo, markPassengerArrived }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -1200,59 +1243,16 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'matched') {
-    const driverName = currentRide?.driverName || 'Driver';
-    const driverInitials = driverName.split(' ').map(n => n[0]).join('').toUpperCase() || 'D';
-    const vehicleInfo = currentRide?.vehicleType || selectedVehicle;
-    const plateNumber = currentRide?.plateNumber || 'Pending...';
-    const driverPhone = currentRide?.driverPhone || '';
-    
     return (
-      <div>
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-medium mb-3">
-            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
-            Driver on the way
-          </div>
-          <h3 className="text-xl sm:text-2xl font-bold text-slate-800">Your ride is arriving!</h3>
-        </div>
-        <div className="bg-slate-50 p-5 rounded-2xl mb-6">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-purple-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
-              {driverInitials}
-            </div>
-            <div className="flex-1">
-              <h4 className="font-bold text-slate-900 text-lg">{driverName}</h4>
-              <p className="text-sm text-slate-500 capitalize">{vehicleInfo} • {plateNumber}</p>
-              <div className="flex items-center gap-1 mt-1.5">
-                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                <span className="text-sm font-medium">4.8</span>
-              </div>
-            </div>
-            {driverPhone && (
-              <a href={`tel:${driverPhone}`} className="w-14 h-14 bg-purple-600 rounded-full flex items-center justify-center text-white hover:bg-purple-700 transition active:scale-95 shadow-lg">
-                <Phone className="w-6 h-6" />
-              </a>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center justify-between text-base mb-5 px-1">
-          <span className="text-slate-500">Estimated fare</span>
-          <span className="font-bold text-slate-900 text-lg">KES {currentRide?.fare || getFare(selectedVehicle)}</span>
-        </div>
-        <button 
-          onClick={() => {
-            console.log('Payment Button Clicked'); 
-            setShowPaymentModal(true);
-          }}
-          className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold hover:bg-purple-700 transition active:scale-[0.98] mb-3 flex items-center justify-center gap-2 shadow-lg shadow-purple-200"
-        >
-          <CreditCard className="w-5 h-5" />
-          Pay with M-Pesa
-        </button>
-        <button onClick={handleCancelRide} className="w-full py-4 border-2 border-red-200 text-red-600 rounded-2xl font-bold hover:bg-red-50 transition active:scale-[0.98]">
-          Cancel Ride
-        </button>
-      </div>
+      <RideTrackingView
+        ride={currentRide}
+        driverInfo={driverInfo}
+        selectedVehicle={selectedVehicle}
+        getFare={getFare}
+        onCancel={handleCancelRide}
+        onConfirmArrival={() => markPassengerArrived(currentRide.id)}
+        onPay={() => setShowPaymentModal(true)}
+      />
     );
   }
   return null;
@@ -1936,77 +1936,126 @@ function SaveLocationForm({ type, onSave, onCancel }) {
   );
 }
 
-// RideTrackingView Component - Shows driver info and ride status
-function RideTrackingView({ ride, driverInfo, onCancel }) {
+// RideTrackingView Component - Shows driver info and pickup coordination flow
+function RideTrackingView({ ride, driverInfo, selectedVehicle, getFare, onCancel, onConfirmArrival, onPay }) {
+  const [isConfirming, setIsConfirming] = useState(false);
+
   if (!ride) return null;
 
-  const statusConfig = {
-    pending: { label: 'Finding Driver...', color: 'bg-amber-100 text-amber-700', icon: '🔍' },
-    accepted: { label: 'Driver on the way', color: 'bg-blue-100 text-blue-700', icon: '🚗' },
-    arrived: { label: 'Driver arrived!', color: 'bg-purple-100 text-purple-700', icon: '📍' },
-    in_progress: { label: 'Ride in progress', color: 'bg-purple-100 text-purple-700', icon: '🛣️' },
+  const resolvedDriver = driverInfo || {
+    name: ride.driverName || 'Driver',
+    phone: ride.driverPhone || '',
+    vehicle_type: ride.vehicleType || selectedVehicle,
+    plate_number: ride.plateNumber || 'Pending',
   };
 
-  const status = statusConfig[ride.status] || statusConfig.pending;
+  const statusMessage = getPassengerStatusMessage(ride);
+  const showConfirmArrival = canPassengerConfirmArrival(ride.status);
+  const trackingStatus = ['accepted', 'arrived', 'passenger_arrived', 'in_progress'].includes(ride.status)
+    ? ride.status
+    : 'accepted';
+
+  const handleConfirmArrival = async () => {
+    setIsConfirming(true);
+    try {
+      await onConfirmArrival();
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {/* Status Badge */}
-      <div className={`${status.color} px-4 py-3 rounded-xl flex items-center gap-3`}>
-        <span className="text-2xl">{status.icon}</span>
-        <div>
-          <div className="font-bold">{status.label}</div>
-          {ride.status === 'arrived' && (
-            <div className="text-sm opacity-75">Head to the pickup point</div>
-          )}
+      <div className="rounded-2xl bg-gradient-to-br from-purple-600 to-purple-700 p-5 text-white">
+        <div className="mb-1 text-xs font-bold uppercase tracking-wide text-purple-100">
+          Live pickup status
         </div>
+        <h3 className="text-xl font-bold">{statusMessage.title}</h3>
+        <p className="mt-1 text-sm text-purple-100">{statusMessage.subtitle}</p>
+        {ride.driver_arrived_at && ride.status !== 'accepted' && (
+          <p className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-xs">
+            Driver arrived at {new Date(ride.driver_arrived_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        )}
+        {ride.passenger_arrived_at && (
+          <p className="mt-2 rounded-xl bg-white/10 px-3 py-2 text-xs">
+            You confirmed arrival at {new Date(ride.passenger_arrived_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        )}
       </div>
 
-      {/* Driver Info Card */}
-      {driverInfo && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <PickupFlowStepper status={trackingStatus} perspective="passenger" />
+
+      {resolvedDriver && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-xl">
-              {driverInfo.name?.charAt(0) || 'D'}
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-xl font-bold text-white">
+              {resolvedDriver.name?.charAt(0) || 'D'}
             </div>
             <div className="flex-1">
-              <div className="font-bold text-slate-900">{driverInfo.name}</div>
-              <div className="text-sm text-slate-500">
-                {driverInfo.vehicle_type?.toUpperCase()}
+              <div className="font-bold text-slate-900">{resolvedDriver.name}</div>
+              <div className="text-sm capitalize text-slate-500">
+                {resolvedDriver.vehicle_type || selectedVehicle}
               </div>
-              <div className="text-xs font-mono text-slate-600 bg-slate-100 inline-block px-2 py-0.5 rounded mt-1">
-                {driverInfo.plate_number}
+              <div className="mt-1 inline-block rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600">
+                {resolvedDriver.plate_number || 'Pending'}
               </div>
             </div>
-            {driverInfo.phone && (
-              <a 
-                href={`tel:${driverInfo.phone}`}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold text-sm hover:bg-purple-200 transition"
+            {resolvedDriver.phone && (
+              <a
+                href={`tel:${resolvedDriver.phone}`}
+                className="flex items-center gap-2 rounded-xl bg-purple-100 px-4 py-2 text-sm font-bold text-purple-700 transition hover:bg-purple-200"
               >
-                📞 Call
+                <Phone className="h-4 w-4" />
+                Call
               </a>
             )}
           </div>
         </div>
       )}
 
-      {/* Ride Details */}
-      <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+      <div className="space-y-3 rounded-xl bg-slate-50 p-4">
         <div className="flex justify-between">
           <span className="text-slate-500">Fare</span>
-          <span className="font-bold text-purple-700">KES {ride.fare}</span>
+          <span className="font-bold text-purple-700">KES {ride.fare || getFare(selectedVehicle)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-500">Payment</span>
-          <span className="font-bold">{ride.payment_status === 'paid' ? '✅ Paid' : '⏳ Pending'}</span>
+          <span className="font-bold">{ride.payment_status === 'paid' ? 'Paid' : 'Pending'}</span>
         </div>
       </div>
 
-      {/* Cancel button (only for pending/accepted) */}
-      {(ride.status === 'pending' || ride.status === 'accepted') && (
+      {showConfirmArrival && (
+        <button
+          onClick={handleConfirmArrival}
+          disabled={isConfirming}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-green-600 py-4 font-bold text-white transition hover:bg-green-700 disabled:opacity-60"
+        >
+          {isConfirming ? <Loader2 className="h-5 w-5 animate-spin" /> : <MapPin className="h-5 w-5" />}
+          I'm Here at Pickup
+        </button>
+      )}
+
+      {ride.status === 'passenger_arrived' && (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          Your driver has been notified. Please board when they are ready.
+        </div>
+      )}
+
+      {['accepted', 'arrived', 'passenger_arrived'].includes(ride.status) && (
+        <button
+          onClick={onPay}
+          className="mb-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-600 py-4 font-bold text-white shadow-lg shadow-purple-200 transition hover:bg-purple-700"
+        >
+          <CreditCard className="h-5 w-5" />
+          Pay with M-Pesa
+        </button>
+      )}
+
+      {(ride.status === 'pending' || ride.status === 'accepted' || ride.status === 'arrived') && (
         <button
           onClick={onCancel}
-          className="w-full py-3 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 transition"
+          className="w-full rounded-xl border border-red-200 py-3 font-bold text-red-600 transition hover:bg-red-50"
         >
           Cancel Ride
         </button>
