@@ -556,7 +556,6 @@ export default function DriverDashboard() {
         .from('rides')
         .update({ 
           status: 'completed', 
-          payment_status: 'paid',
           ride_completed_at: new Date().toISOString()
         })
         .eq('id', rideId);

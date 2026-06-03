@@ -56,6 +56,11 @@ export function getPassengerStatusMessage(ride) {
         title: "Ride in progress",
         subtitle: "Enjoy your trip.",
       };
+    case "completed":
+      return {
+        title: "Ride completed",
+        subtitle: ride.payment_status === "paid" ? "Thank you for riding with us!" : "Please complete your payment.",
+      };
     default:
       return { title: "Finding driver", subtitle: "Please wait..." };
   }
