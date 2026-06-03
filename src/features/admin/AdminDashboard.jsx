@@ -24,6 +24,7 @@ export default function AdminDashboard() {
   // Data States
   const [stats, setStats] = useState({
     totalRevenue: 0,
+    totalTransferred: 0,
     activeDrivers: 0,
     offlineDrivers: 0,
     totalRides: 0,
@@ -34,6 +35,7 @@ export default function AdminDashboard() {
   const [allDrivers, setAllDrivers] = useState([]);
   const [allPassengers, setAllPassengers] = useState([]);
   const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [allTransactions, setAllTransactions] = useState([]);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
@@ -51,21 +53,29 @@ export default function AdminDashboard() {
         { data: drivers, error: driversError },
         { data: passengers },
         { data: rides },
+        { data: transactions, error: transactionsError },
       ] = await Promise.all([
         // Use explicit relationship: drivers.id -> profiles.id (not owner_id)
         supabase.from('drivers').select('*, profiles!drivers_id_fkey(full_name, phone)'),
         supabase.from('profiles').select('*').eq('role', 'passenger'),
         supabase.from('rides').select('*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name)').order('created_at', { ascending: false }).limit(50),
+        supabase.from('mpesa_transactions').select('*, ride:rides(*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name))').order('created_at', { ascending: false }),
       ]);
 
       console.log('Fetched drivers:', drivers);
       console.log('Drivers error:', driversError);
+      console.log('Fetched transactions:', transactions);
+      if (transactionsError) console.error('Transactions error:', transactionsError);
 
       // Calculate stats
       const activeDrivers = drivers?.filter(d => d.is_online) || [];
       const offlineDrivers = drivers?.filter(d => !d.is_online) || [];
       const completedRides = rides?.filter(r => r.status === 'completed') || [];
       const totalRevenue = completedRides.reduce((sum, r) => sum + (r.fare || 0), 0);
+
+      // Calculate transferred amount from completed mpesa transactions
+      const completedTransactions = transactions?.filter(t => t.status === 'completed') || [];
+      const totalTransferred = completedTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
       // Get pending drivers (profiles with role=driver but no matching drivers record)
       const { data: driverProfiles } = await supabase
@@ -80,6 +90,7 @@ export default function AdminDashboard() {
 
       setStats({
         totalRevenue,
+        totalTransferred,
         activeDrivers: activeDrivers.length,
         offlineDrivers: offlineDrivers.length,
         totalRides: rides?.length || 0,
@@ -90,6 +101,7 @@ export default function AdminDashboard() {
       setAllDrivers(drivers || []);
       setAllPassengers(passengers || []);
       setRecentRides(rides || []);
+      setAllTransactions(transactions || []);
       setPendingApprovals(pending);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -252,6 +264,14 @@ export default function AdminDashboard() {
     p.phone?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredTransactions = allTransactions.filter(t =>
+    t.phone_number?.includes(searchQuery) ||
+    t.mpesa_receipt?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.checkout_request_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.ride?.passenger?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.ride?.driver?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="flex h-screen bg-white font-sans text-slate-900">
       
@@ -288,6 +308,7 @@ export default function AdminDashboard() {
               <NavItem icon={Car} label="Drivers" badge={stats.activeDrivers} active={activeView === 'drivers'} onClick={() => handleNavClick('drivers')} isOpen={true} />
               <NavItem icon={Users} label="Passengers" badge={stats.totalPassengers} active={activeView === 'passengers'} onClick={() => handleNavClick('passengers')} isOpen={true} />
               <NavItem icon={MapIcon} label="All Rides" badge={stats.totalRides} active={activeView === 'rides'} onClick={() => handleNavClick('rides')} isOpen={true} />
+              <NavItem icon={CreditCard} label="Payments" badge={allTransactions.length} active={activeView === 'payments'} onClick={() => handleNavClick('payments')} isOpen={true} />
             </nav>
             <div className="p-4 border-t border-slate-100">
               <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition">
@@ -310,6 +331,7 @@ export default function AdminDashboard() {
           <NavItem icon={Car} label="Drivers" badge={stats.activeDrivers} active={activeView === 'drivers'} onClick={() => handleNavClick('drivers')} isOpen={sidebarOpen} />
           <NavItem icon={Users} label="Passengers" badge={stats.totalPassengers} active={activeView === 'passengers'} onClick={() => handleNavClick('passengers')} isOpen={sidebarOpen} />
           <NavItem icon={MapIcon} label="All Rides" badge={stats.totalRides} active={activeView === 'rides'} onClick={() => handleNavClick('rides')} isOpen={sidebarOpen} />
+          <NavItem icon={CreditCard} label="Payments" badge={allTransactions.length} active={activeView === 'payments'} onClick={() => handleNavClick('payments')} isOpen={sidebarOpen} />
         </nav>
 
         <div className="p-4 border-t border-slate-100">
@@ -368,12 +390,21 @@ export default function AdminDashboard() {
           {activeView === 'dashboard' && (
             <>
               {/* KEY METRICS */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 lg:gap-6">
                 <StatCard 
                   title="Total Revenue" 
                   value={`KES ${stats.totalRevenue.toLocaleString()}`} 
+                  subtitle="All completed rides"
                   icon={TrendingUp} 
                   color="bg-purple-500"
+                  isLoading={isLoading}
+                />
+                <StatCard 
+                  title="Amount Transferred" 
+                  value={`KES ${stats.totalTransferred.toLocaleString()}`} 
+                  subtitle="Successful payments"
+                  icon={CreditCard} 
+                  color="bg-emerald-500"
                   isLoading={isLoading}
                 />
                 <StatCard 
@@ -387,6 +418,7 @@ export default function AdminDashboard() {
                 <StatCard 
                   title="Total Rides" 
                   value={stats.totalRides} 
+                  subtitle="Total requests"
                   icon={MapIcon} 
                   color="bg-purple-500"
                   isLoading={isLoading}
@@ -584,6 +616,47 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* === PAYMENTS VIEW === */}
+          {activeView === 'payments' && (
+            <div className="space-y-6">
+              {/* Payment specific stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+                <StatCard 
+                  title="Completed Transfers" 
+                  value={`KES ${stats.totalTransferred.toLocaleString()}`} 
+                  subtitle={`${allTransactions.filter(t => t.status === 'completed').length} successful payments`}
+                  icon={CheckCircle} 
+                  color="bg-emerald-500"
+                  isLoading={isLoading}
+                />
+                <StatCard 
+                  title="Pending Requests" 
+                  value={`KES ${allTransactions.filter(t => t.status === 'pending').reduce((sum, t) => sum + Number(t.amount || 0), 0).toLocaleString()}`} 
+                  subtitle={`${allTransactions.filter(t => t.status === 'pending').length} pending requests`}
+                  icon={Clock} 
+                  color="bg-yellow-500"
+                  isLoading={isLoading}
+                />
+                <StatCard 
+                  title="Failed / Cancelled" 
+                  value={`KES ${allTransactions.filter(t => ['failed', 'cancelled'].includes(t.status)).reduce((sum, t) => sum + Number(t.amount || 0), 0).toLocaleString()}`} 
+                  subtitle={`${allTransactions.filter(t => ['failed', 'cancelled'].includes(t.status)).length} failed attempts`}
+                  icon={XCircle} 
+                  color="bg-red-500"
+                  isLoading={isLoading}
+                />
+              </div>
+
+              {/* Transactions table */}
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 lg:p-6 border-b border-slate-100 flex justify-between items-center">
+                  <h3 className="font-bold text-lg text-slate-800">M-Pesa Transaction Logs ({filteredTransactions.length})</h3>
+                </div>
+                <TransactionsTable transactions={filteredTransactions} />
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -749,6 +822,72 @@ function RidesTable({ rides }) {
           })}
           {rides.length === 0 && (
             <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-400">No rides found</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TransactionsTable({ transactions }) {
+  const statusColors = {
+    completed: 'bg-emerald-100 text-emerald-700',
+    pending: 'bg-yellow-100 text-yellow-700',
+    failed: 'bg-red-100 text-red-700',
+    cancelled: 'bg-slate-100 text-slate-700',
+  };
+
+  const statusIcons = {
+    completed: CheckCircle,
+    pending: Clock,
+    failed: XCircle,
+    cancelled: XCircle,
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left">
+        <thead className="bg-slate-50 text-slate-500 text-xs lg:text-sm uppercase">
+          <tr>
+            <th className="px-4 lg:px-6 py-3 font-semibold">Receipt / Request ID</th>
+            <th className="px-4 lg:px-6 py-3 font-semibold">Passenger / Phone</th>
+            <th className="px-4 lg:px-6 py-3 font-semibold hidden md:table-cell">Driver</th>
+            <th className="px-4 lg:px-6 py-3 font-semibold">Amount</th>
+            <th className="px-4 lg:px-6 py-3 font-semibold">Status</th>
+            <th className="px-4 lg:px-6 py-3 font-semibold">Date</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 text-sm">
+          {transactions.map(t => {
+            const StatusIcon = statusIcons[t.status] || Clock;
+            return (
+              <tr key={t.id} className="hover:bg-slate-50">
+                <td className="px-4 lg:px-6 py-4 font-medium text-slate-900">
+                  <div className="font-mono text-xs">{t.mpesa_receipt || 'No Receipt'}</div>
+                  <div className="text-[10px] text-slate-400 font-mono truncate max-w-[150px]">{t.checkout_request_id}</div>
+                </td>
+                <td className="px-4 lg:px-6 py-4 text-slate-600">
+                  <div className="font-medium">{t.ride?.passenger?.full_name || 'M-Pesa User'}</div>
+                  <div className="text-xs text-slate-400">{t.phone_number}</div>
+                </td>
+                <td className="px-4 lg:px-6 py-4 text-slate-600 hidden md:table-cell">
+                  {t.ride?.driver?.full_name || '-'}
+                </td>
+                <td className="px-4 lg:px-6 py-4 font-bold text-slate-900">KES {t.amount || 0}</td>
+                <td className="px-4 lg:px-6 py-4">
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold capitalize ${statusColors[t.status] || 'bg-slate-100 text-slate-600'}`}>
+                    <StatusIcon className="w-3 h-3" />
+                    {t.status}
+                  </span>
+                </td>
+                <td className="px-4 lg:px-6 py-4 text-slate-500 text-xs">
+                  {new Date(t.created_at).toLocaleString()}
+                </td>
+              </tr>
+            );
+          })}
+          {transactions.length === 0 && (
+            <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-400">No transactions found</td></tr>
           )}
         </tbody>
       </table>
