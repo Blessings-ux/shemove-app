@@ -1,11 +1,25 @@
 // src/services/geocoding.js
 
-// Using OpenStreetMap Nominatim API via Vite proxy (bypasses CORS)
-// Usage Policy: Maximum 1 request per second, valid User-Agent required.
+// Using OpenStreetMap Nominatim API
+// In development, requests go through the Vite proxy to bypass CORS.
+// In production, requests go directly to Nominatim (CORS is allowed for browser fetch).
 
-// Use proxy in development, direct URL in production
-const NOMINATIM_SEARCH = "/api/nominatim/search";
-const NOMINATIM_REVERSE = "/api/nominatim/reverse";
+const isDev = import.meta.env.DEV;
+
+const NOMINATIM_SEARCH = isDev
+  ? "/api/nominatim/search"
+  : "https://nominatim.openstreetmap.org/search";
+
+const NOMINATIM_REVERSE = isDev
+  ? "/api/nominatim/reverse"
+  : "https://nominatim.openstreetmap.org/reverse";
+
+// Headers required by Nominatim usage policy (must identify the app)
+const nominatimHeaders = isDev
+  ? {}
+  : {
+      "User-Agent": "SheMove-App/1.0 (https://shemove.ke)",
+    };
 
 export async function searchLocation(query) {
   if (!query || query.length < 3) return [];
@@ -18,7 +32,9 @@ export async function searchLocation(query) {
       addressdetails: 1,
     });
 
-    const response = await fetch(`${NOMINATIM_SEARCH}?${params.toString()}`);
+    const response = await fetch(`${NOMINATIM_SEARCH}?${params.toString()}`, {
+      headers: nominatimHeaders,
+    });
 
     if (!response.ok) {
       console.error(
@@ -55,7 +71,9 @@ export async function reverseGeocode(lat, lng) {
       addressdetails: 1,
     });
 
-    const response = await fetch(`${NOMINATIM_REVERSE}?${params.toString()}`);
+    const response = await fetch(`${NOMINATIM_REVERSE}?${params.toString()}`, {
+      headers: nominatimHeaders,
+    });
 
     if (!response.ok) throw new Error("Reverse geocoding error");
 

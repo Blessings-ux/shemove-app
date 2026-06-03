@@ -205,26 +205,9 @@ export default function PassengerHome() {
   };
   const getGreeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
   
-  // Fare calculation: KES 75 per km with minimum fare based on vehicle
-  const RATE_PER_KM = 75;
-  const MIN_FARES = { boda: 50, tuktuk: 100, taxi: 200 };
-  
-  // Calculate distance between two points using Haversine formula
-  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371; // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; // Distance in km
-  };
-  
+  // Use getFare as a simple wrapper around the imported calculateFare for components that expect it
   const getFare = (distanceKm, vehicleType = 'boda') => {
-    const minFare = MIN_FARES[vehicleType] || 50;
-    const calculatedFare = Math.round(distanceKm * RATE_PER_KM);
-    return Math.max(calculatedFare, minFare);
+    return calculateFare(distanceKm, vehicleType);
   };
 
   // Fetch available carpool offers from database
@@ -1228,7 +1211,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'selecting') {
-    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }} />;
+    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, setPickupLocation }} />;
   }
 
   if (bookingStep === 'searching') {
