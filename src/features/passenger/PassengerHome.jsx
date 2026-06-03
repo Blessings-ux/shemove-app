@@ -80,8 +80,23 @@ export default function PassengerHome() {
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => setPickupLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-        () => setPickupLocation({ lat: -1.2921, lng: 36.8219 })
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setPickupLocation({ lat: latitude, lng: longitude });
+          // Reverse-geocode to show actual place name
+          try {
+            const address = await reverseGeocode(latitude, longitude);
+            if (address && address.name) {
+              setPickupAddress(address.name);
+            }
+          } catch (err) {
+            console.log('Could not reverse-geocode current location');
+          }
+        },
+        () => {
+          setPickupLocation({ lat: -1.2921, lng: 36.8219 });
+          setPickupAddress('Nairobi CBD');
+        }
       );
     }
   }, []);
@@ -394,6 +409,30 @@ export default function PassengerHome() {
           setCompletedRideForRating(updatedRide);
           setShowRatingModal(true);
           setBookingStep('idle');
+          setDropoffLocation(null);
+          setRouteCoordinates([]);
+          setEstimatedFare(0);
+          setEstimatedDistance(0);
+          setDestination('');
+          setDriverInfo(null);
+        }
+
+        // Handle ride cancelled by driver
+        if (updatedRide.status === 'cancelled') {
+          console.log('🚫 Ride cancelled, resetting UI');
+          if (window.rideTimeout) clearTimeout(window.rideTimeout);
+          if (window.rideChannel) {
+            supabase.removeChannel(window.rideChannel);
+            window.rideChannel = null;
+          }
+          setCurrentRide(null);
+          setBookingStep('idle');
+          setDestination('');
+          setDropoffLocation(null);
+          setRouteCoordinates([]);
+          setEstimatedFare(0);
+          setEstimatedDistance(0);
+          setDriverInfo(null);
         }
       })
       .subscribe();
@@ -607,8 +646,18 @@ export default function PassengerHome() {
             setBookingStep('matched');
           } else if (updatedRide.status === 'cancelled') {
             if (window.rideTimeout) clearTimeout(window.rideTimeout);
-            setBookingStep('idle');
+            if (window.rideChannel) {
+              supabase.removeChannel(window.rideChannel);
+              window.rideChannel = null;
+            }
             setCurrentRide(null);
+            setBookingStep('idle');
+            setDestination('');
+            setDropoffLocation(null);
+            setRouteCoordinates([]);
+            setEstimatedFare(0);
+            setEstimatedDistance(0);
+            setDriverInfo(null);
           }
         })
         .subscribe();
@@ -640,10 +689,20 @@ export default function PassengerHome() {
         supabase.removeChannel(window.rideChannel);
         window.rideChannel = null;
       }
+      if (window.rideTimeout) {
+        clearTimeout(window.rideTimeout);
+        window.rideTimeout = null;
+      }
     }
+    // Full state reset — clear map, route, fare, and return to idle
     setCurrentRide(null);
     setBookingStep('idle');
     setDestination('');
+    setDropoffLocation(null);
+    setRouteCoordinates([]);
+    setEstimatedFare(0);
+    setEstimatedDistance(0);
+    setDriverInfo(null);
   };
 
   const markPassengerArrived = async (rideId) => {
@@ -806,6 +865,7 @@ export default function PassengerHome() {
               setShowPaymentModal={setShowPaymentModal}
               driverInfo={driverInfo}
               markPassengerArrived={markPassengerArrived}
+              pickupAddress={pickupAddress} setPickupAddress={setPickupAddress}
             />
           </div>
           {/* Safe area for iOS */}
@@ -893,6 +953,7 @@ export default function PassengerHome() {
                 setShowPaymentModal={setShowPaymentModal}
                 driverInfo={driverInfo}
                 markPassengerArrived={markPassengerArrived}
+                pickupAddress={pickupAddress} setPickupAddress={setPickupAddress}
               />
             )}
           </div>
@@ -1002,7 +1063,7 @@ function QuickAction({ icon: Icon, label, onClick, badge }) {
   );
 }
 
-function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal, driverInfo, markPassengerArrived }) {
+function BookingPanel({ bookingStep, setBookingStep, destination, setDestination, selectedVehicle, setSelectedVehicle, userName, getGreeting, getFare, handleRequestRide, handleCancelRide, isRequestingRide, currentRide, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, savedLocations, useSavedLocation, setShowSaveLocationModal, carpoolSearchQuery, setCarpoolSearchQuery, setPickupLocation, setShowPaymentModal, driverInfo, markPassengerArrived, pickupAddress, setPickupAddress }) {
   if (bookingStep === 'idle') {
     return (
       <div>
@@ -1211,7 +1272,7 @@ function BookingPanel({ bookingStep, setBookingStep, destination, setDestination
   }
 
   if (bookingStep === 'selecting') {
-    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, setPickupLocation }} />;
+    return <SelectingStep {...{ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, setPickupLocation, pickupAddress, setPickupAddress }} />;
   }
 
   if (bookingStep === 'searching') {
@@ -1257,8 +1318,8 @@ function MobileBottomSheet(props) {
   );
 }
 
-function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer }) {
-  const [pickupText, setPickupText] = useState(pickupLocation ? 'Current Location' : '');
+function SelectingStep({ destination, setDestination, selectedVehicle, setSelectedVehicle, handleRequestRide, isRequestingRide, setBookingStep, pickupLocation, setDropoffLocation, estimatedFare, setEstimatedFare, estimatedDistance, setEstimatedDistance, setPickupLocation, isCarpool, setIsCarpool, seatsBooked, setSeatsBooked, availableOffers, bookCarpoolOffer, pickupAddress, setPickupAddress }) {
+  const [pickupText, setPickupText] = useState(pickupAddress || (pickupLocation ? 'Current Location' : ''));
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchField, setActiveSearchField] = useState(null); // 'pickup' or 'destination'
   const [isSearching, setIsSearching] = useState(false);
@@ -1295,6 +1356,7 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
       const newPickup = { lat: result.lat, lng: result.lng };
       setPickupLocation(newPickup);
       setPickupText(result.name);
+      if (setPickupAddress) setPickupAddress(result.name);
     } else {
       setDestination(result.name);
       setDropoffLocation({ lat: result.lat, lng: result.lng });
@@ -1356,9 +1418,12 @@ function SelectingStep({ destination, setDestination, selectedVehicle, setSelect
                      }
                      try {
                        const address = await reverseGeocode(latitude, longitude);
-                       setPickupText(address || 'Current Location');
+                       const placeName = address?.name || 'Current Location';
+                       setPickupText(placeName);
+                       if (setPickupAddress) setPickupAddress(placeName);
                      } catch (err) {
                        setPickupText('Current Location');
+                       if (setPickupAddress) setPickupAddress('Current Location');
                      }
                    },
                    (err) => {
