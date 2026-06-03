@@ -1,7 +1,13 @@
 // src/services/routing.js
 
-// Use proxy in development to bypass CORS
-const OSRM_BASE_URL = "/api/osrm/route/v1/driving";
+// In development, requests go through the Vite proxy to bypass CORS.
+// In production, requests go directly to the OSRM API (CORS is allowed).
+
+const isDev = import.meta.env.DEV;
+
+const OSRM_BASE_URL = isDev
+  ? "/api/osrm/route/v1/driving"
+  : "https://router.project-osrm.org/route/v1/driving";
 
 /**
  * Fetches routing data between two points (pickup and dropoff).
