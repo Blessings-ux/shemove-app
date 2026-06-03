@@ -409,6 +409,30 @@ export default function PassengerHome() {
           setCompletedRideForRating(updatedRide);
           setShowRatingModal(true);
           setBookingStep('idle');
+          setDropoffLocation(null);
+          setRouteCoordinates([]);
+          setEstimatedFare(0);
+          setEstimatedDistance(0);
+          setDestination('');
+          setDriverInfo(null);
+        }
+
+        // Handle ride cancelled by driver
+        if (updatedRide.status === 'cancelled') {
+          console.log('🚫 Ride cancelled, resetting UI');
+          if (window.rideTimeout) clearTimeout(window.rideTimeout);
+          if (window.rideChannel) {
+            supabase.removeChannel(window.rideChannel);
+            window.rideChannel = null;
+          }
+          setCurrentRide(null);
+          setBookingStep('idle');
+          setDestination('');
+          setDropoffLocation(null);
+          setRouteCoordinates([]);
+          setEstimatedFare(0);
+          setEstimatedDistance(0);
+          setDriverInfo(null);
         }
       })
       .subscribe();
@@ -622,8 +646,18 @@ export default function PassengerHome() {
             setBookingStep('matched');
           } else if (updatedRide.status === 'cancelled') {
             if (window.rideTimeout) clearTimeout(window.rideTimeout);
-            setBookingStep('idle');
+            if (window.rideChannel) {
+              supabase.removeChannel(window.rideChannel);
+              window.rideChannel = null;
+            }
             setCurrentRide(null);
+            setBookingStep('idle');
+            setDestination('');
+            setDropoffLocation(null);
+            setRouteCoordinates([]);
+            setEstimatedFare(0);
+            setEstimatedDistance(0);
+            setDriverInfo(null);
           }
         })
         .subscribe();
@@ -655,10 +689,20 @@ export default function PassengerHome() {
         supabase.removeChannel(window.rideChannel);
         window.rideChannel = null;
       }
+      if (window.rideTimeout) {
+        clearTimeout(window.rideTimeout);
+        window.rideTimeout = null;
+      }
     }
+    // Full state reset — clear map, route, fare, and return to idle
     setCurrentRide(null);
     setBookingStep('idle');
     setDestination('');
+    setDropoffLocation(null);
+    setRouteCoordinates([]);
+    setEstimatedFare(0);
+    setEstimatedDistance(0);
+    setDriverInfo(null);
   };
 
   const markPassengerArrived = async (rideId) => {
