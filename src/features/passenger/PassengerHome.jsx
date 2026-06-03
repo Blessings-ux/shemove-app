@@ -433,6 +433,24 @@ export default function PassengerHome() {
           }
           setCurrentRide(null);
           setBookingStep('idle');
+          setDropoffLocation(null);
+          setRouteCoordinates([]);
+          setEstimatedFare(0);
+          setEstimatedDistance(0);
+          setDestination('');
+          setDriverInfo(null);
+        }
+
+        // Handle ride cancelled by driver
+        if (updatedRide.status === 'cancelled') {
+          console.log('🚫 Ride cancelled, resetting UI');
+          if (window.rideTimeout) clearTimeout(window.rideTimeout);
+          if (window.rideChannel) {
+            supabase.removeChannel(window.rideChannel);
+            window.rideChannel = null;
+          }
+          setCurrentRide(null);
+          setBookingStep('idle');
           setDestination('');
           setDropoffLocation(null);
           setRouteCoordinates([]);
