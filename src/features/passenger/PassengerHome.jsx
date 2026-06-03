@@ -404,17 +404,23 @@ export default function PassengerHome() {
           fetchDriverInfo(updatedRide.driver_id);
         }
 
-        // Show rating modal when ride is completed
+        // Show rating or payment modal when ride is completed
         if (updatedRide.status === 'completed') {
           setCompletedRideForRating(updatedRide);
-          setShowRatingModal(true);
-          setBookingStep('idle');
-          setDropoffLocation(null);
-          setRouteCoordinates([]);
-          setEstimatedFare(0);
-          setEstimatedDistance(0);
-          setDestination('');
-          setDriverInfo(null);
+          if (updatedRide.payment_status === 'paid') {
+            setShowRatingModal(true);
+            setBookingStep('idle');
+            setDropoffLocation(null);
+            setRouteCoordinates([]);
+            setEstimatedFare(0);
+            setEstimatedDistance(0);
+            setDestination('');
+            setDriverInfo(null);
+            setCurrentRide(null);
+          } else {
+            // Prompt passenger to pay
+            setShowPaymentModal(true);
+          }
         }
 
         // Handle ride cancelled by driver
@@ -1017,9 +1023,21 @@ export default function PassengerHome() {
         amount={currentRide?.fare || 0}
         phoneNumber={user?.user_metadata?.phone || ''}
         rideId={currentRide?.id}
-        onPaymentSuccess={() => {
+        onPaymentSuccess={(receipt) => {
           setShowPaymentModal(false);
           alert('Payment Successful!');
+          setCurrentRide(prev => prev ? { ...prev, payment_status: 'paid', mpesa_receipt: receipt } : null);
+          if (currentRide?.status === 'completed' || completedRideForRating) {
+            setShowRatingModal(true);
+            setBookingStep('idle');
+            setDropoffLocation(null);
+            setRouteCoordinates([]);
+            setEstimatedFare(0);
+            setEstimatedDistance(0);
+            setDestination('');
+            setDriverInfo(null);
+            setCurrentRide(null);
+          }
         }}
       />
 
@@ -2090,7 +2108,7 @@ function RideTrackingView({ ride, driverInfo, selectedVehicle, getFare, onCancel
         </div>
       )}
 
-      {['accepted', 'arrived', 'passenger_arrived'].includes(ride.status) && (
+      {(['accepted', 'arrived', 'passenger_arrived'].includes(ride.status) || (ride.status === 'completed' && ride.payment_status !== 'paid')) && (
         <button
           onClick={onPay}
           className="mb-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-600 py-4 font-bold text-white shadow-lg shadow-purple-200 transition hover:bg-purple-700"
