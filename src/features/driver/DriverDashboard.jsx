@@ -192,7 +192,28 @@ export default function DriverDashboard() {
     let pollInterval;
     
     const fetchPendingRides = async () => {
-      if (!isOnline || !user || !canAcceptMore || incomingRequest) return;
+      if (!isOnline || !user || !canAcceptMore) return;
+      
+      // If we have an incoming request, verify it is still pending
+      if (incomingRequest) {
+        try {
+          const { data: currentRideStatus, error } = await supabase
+            .from('rides')
+            .select('status, driver_id')
+            .eq('id', incomingRequest.id)
+            .single();
+          
+          if (!error && currentRideStatus) {
+            if (currentRideStatus.status === 'cancelled' || currentRideStatus.status !== 'pending' || (currentRideStatus.driver_id && currentRideStatus.driver_id !== user.id)) {
+              console.log('Incoming request is no longer pending (via polling check). Clearing.');
+              setIncomingRequest(null);
+            }
+          }
+        } catch (err) {
+          console.log('Error verifying incoming request status:', err);
+        }
+        return;
+      }
       
       try {
         // Fetch pending rides that don't have a driver yet
@@ -291,6 +312,9 @@ export default function DriverDashboard() {
 
           setActiveRides((prev) => {
             if (['cancelled', 'completed'].includes(payload.new.status)) {
+              if (payload.new.status === 'cancelled') {
+                alert('The passenger has cancelled this ride.');
+              }
               return prev.filter(r => r.id !== payload.new.id);
             }
             const isExist = prev.some(r => r.id === payload.new.id);
@@ -368,6 +392,19 @@ export default function DriverDashboard() {
             distance: `${((payload.new.fare || 150) / 75).toFixed(1)} km`,
             paymentMethod: 'M-Pesa'
           });
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rides'
+        }, async (payload) => {
+          // If the updated ride is our current incoming request and is no longer pending/cancelled:
+          if (incomingRequest && payload.new.id === incomingRequest.id) {
+            if (payload.new.status === 'cancelled' || payload.new.status !== 'pending' || (payload.new.driver_id && payload.new.driver_id !== user.id)) {
+              console.log('Incoming request was cancelled or accepted by another driver. Clearing incoming request.');
+              setIncomingRequest(null);
+            }
+          }
         })
         .subscribe((status) => {
           console.log('📡 Subscription status:', status);
