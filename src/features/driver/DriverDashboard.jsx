@@ -12,6 +12,9 @@ import {
   canDriverStartRide,
   getDriverStatusMessage,
 } from '../../utils/pickupFlow';
+import { useDriverLocation } from '../../hooks/useDriverLocation';
+import Map from '../../components/ui/Map';
+import { getRoute } from '../../services/routing';
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
@@ -24,6 +27,9 @@ export default function DriverDashboard() {
   const [activeRides, setActiveRides] = useState([]);
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Get live driver location and sync to DB
+  const { location: driverLocation } = useDriverLocation(user?.id, isOnline || activeRides.length > 0);
   
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -92,11 +98,29 @@ export default function DriverDashboard() {
         const promises = [
           !profile ? supabase.from('profiles').select('*').eq('id', user.id).single() : Promise.resolve({ data: profile }),
           supabase.from('drivers').select('*').eq('id', user.id).single(),
-          supabase.from('rides').select('*').or(`driver_id.eq.${user.id},and(status.eq.pending)`).order('created_at', { ascending: false }).limit(20),
+          supabase.from('rides').select('*').or(`driver_id.eq.${user.id},status.eq.pending`).order('created_at', { ascending: false }).limit(20),
           supabase.from('rides').select('fare').eq('driver_id', user.id).eq('status', 'completed').gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString()) // Today's earnings
         ];
 
         const [profileRes, driverRes, ridesRes, earningsRes] = await Promise.all(promises);
+
+        // Fetch passenger details for the rides
+        if (ridesRes.data && ridesRes.data.length > 0) {
+          const passengerIds = [...new Set(ridesRes.data.map(r => r.passenger_id).filter(Boolean))];
+          if (passengerIds.length > 0) {
+            const { data: passengers, error: pError } = await supabase
+              .from('profiles')
+              .select('id, full_name, phone')
+              .in('id', passengerIds);
+            if (!pError && passengers) {
+              const profilesMap = Object.fromEntries(passengers.map(p => [p.id, p]));
+              ridesRes.data = ridesRes.data.map(ride => ({
+                ...ride,
+                passenger: profilesMap[ride.passenger_id] || null
+              }));
+            }
+          }
+        }
 
         // Update Profile Store if fetched
         if (!profile && profileRes.data) {
@@ -130,7 +154,15 @@ export default function DriverDashboard() {
           const active = ridesRes.data.filter(r => 
             r.driver_id === user.id && ['accepted', 'arrived', 'passenger_arrived', 'in_progress'].includes(r.status)
           );
-          setActiveRides(active);
+          const formattedActive = active.map(ride => ({
+            ...ride,
+            passengerName: ride.passenger?.full_name || 'Passenger',
+            passengerPhone: ride.passenger?.phone || '',
+            rating: 4.8,
+            pickup: 'Pickup Location',
+            dropoff: 'Dropoff Location'
+          }));
+          setActiveRides(formattedActive);
         }
 
         // Handle Earnings (This is a quick approximation, better to use RPC for exacts)
@@ -152,15 +184,36 @@ export default function DriverDashboard() {
   }, [user]); // Only run on user change (mount)
 
   // Subscribe to ride requests when online
-  // Allow subscription even with active rides IF they are shared
-  const canAcceptMore = activeRides.length === 0 || activeRides.every(r => r.ride_type === 'shared');
+  // A driver can only have a single active ride at a time
+  const canAcceptMore = activeRides.length === 0;
 
   // Polling fallback - fetch pending rides every 5 seconds
   useEffect(() => {
     let pollInterval;
     
     const fetchPendingRides = async () => {
-      if (!isOnline || !user || !canAcceptMore || incomingRequest) return;
+      if (!isOnline || !user || !canAcceptMore) return;
+      
+      // If we have an incoming request, verify it is still pending
+      if (incomingRequest) {
+        try {
+          const { data: currentRideStatus, error } = await supabase
+            .from('rides')
+            .select('status, driver_id')
+            .eq('id', incomingRequest.id)
+            .single();
+          
+          if (!error && currentRideStatus) {
+            if (currentRideStatus.status === 'cancelled' || currentRideStatus.status !== 'pending' || (currentRideStatus.driver_id && currentRideStatus.driver_id !== user.id)) {
+              console.log('Incoming request is no longer pending (via polling check). Clearing.');
+              setIncomingRequest(null);
+            }
+          }
+        } catch (err) {
+          console.log('Error verifying incoming request status:', err);
+        }
+        return;
+      }
       
       try {
         // Fetch pending rides that don't have a driver yet
@@ -221,9 +274,8 @@ export default function DriverDashboard() {
 
   // Subscribe to updates on active rides (e.g. passenger confirms arrival)
   useEffect(() => {
-    if (!user || activeRides.length === 0) return;
+    if (!user) return;
 
-    const rideIds = activeRides.map((r) => r.id);
     const channel = supabase
       .channel(`driver-active-rides-${user.id}`)
       .on(
@@ -231,15 +283,57 @@ export default function DriverDashboard() {
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'rides',
+          table: 'rides'
         },
-        (payload) => {
-          if (!rideIds.includes(payload.new.id)) return;
-          setActiveRides((prev) =>
-            prev.map((ride) =>
-              ride.id === payload.new.id ? { ...ride, ...payload.new } : ride,
-            ),
-          );
+        async (payload) => {
+          // Only process rides assigned to this driver
+          if (payload.new.driver_id !== user.id) return;
+
+          console.log('🔔 Active ride status updated in realtime:', payload.new.status, payload.new);
+          
+          let passengerDetails = {};
+          if (payload.new.passenger_id) {
+            try {
+              const { data: passenger } = await supabase
+                .from('profiles')
+                .select('full_name, phone')
+                .eq('id', payload.new.passenger_id)
+                .single();
+              if (passenger) {
+                passengerDetails = {
+                  passengerName: passenger.full_name,
+                  passengerPhone: passenger.phone
+                };
+              }
+            } catch (err) {
+              console.error('Error fetching passenger for updated ride:', err);
+            }
+          }
+
+          setActiveRides((prev) => {
+            if (['cancelled', 'completed'].includes(payload.new.status)) {
+              if (payload.new.status === 'cancelled') {
+                alert('The passenger has cancelled this ride.');
+              }
+              return prev.filter(r => r.id !== payload.new.id);
+            }
+            const isExist = prev.some(r => r.id === payload.new.id);
+            if (isExist) {
+              return prev.map((ride) =>
+                ride.id === payload.new.id ? { ...ride, ...payload.new, ...passengerDetails } : ride
+              );
+            } else if (['accepted', 'arrived', 'passenger_arrived', 'in_progress'].includes(payload.new.status)) {
+              return [...prev, {
+                ...payload.new,
+                passengerName: passengerDetails.passengerName || 'Passenger',
+                passengerPhone: passengerDetails.passengerPhone || '',
+                rating: 4.8,
+                pickup: 'Pickup Location',
+                dropoff: 'Dropoff Location'
+              }];
+            }
+            return prev;
+          });
         },
       )
       .subscribe();
@@ -247,7 +341,7 @@ export default function DriverDashboard() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, activeRides.map((r) => r.id).join(',')]);
+  }, [user]);
 
   // Real-time subscription (backup - works if Supabase realtime is enabled)
   useEffect(() => {
@@ -298,6 +392,19 @@ export default function DriverDashboard() {
             distance: `${((payload.new.fare || 150) / 75).toFixed(1)} km`,
             paymentMethod: 'M-Pesa'
           });
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rides'
+        }, async (payload) => {
+          // If the updated ride is our current incoming request and is no longer pending/cancelled:
+          if (incomingRequest && payload.new.id === incomingRequest.id) {
+            if (payload.new.status === 'cancelled' || payload.new.status !== 'pending' || (payload.new.driver_id && payload.new.driver_id !== user.id)) {
+              console.log('Incoming request was cancelled or accepted by another driver. Clearing incoming request.');
+              setIncomingRequest(null);
+            }
+          }
         })
         .subscribe((status) => {
           console.log('📡 Subscription status:', status);
@@ -366,21 +473,39 @@ export default function DriverDashboard() {
 
   const fetchActiveRides = async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('rides')
-        .select('*, passenger:profiles!rides_passenger_id_fkey(full_name, phone)')
+        .select('*')
         .eq('driver_id', user.id)
-        .in('status', ['accepted', 'ongoing']);
+        .in('status', ['accepted', 'arrived', 'passenger_arrived', 'in_progress']);
+      
+      if (error) throw error;
       
       if (data && data.length > 0) {
-        const formattedRides = data.map(ride => ({
-          ...ride,
-          passengerName: ride.passenger?.full_name || 'Passenger',
-          passengerPhone: ride.passenger?.phone || '',
-          rating: 4.8,
-          pickup: 'Pickup Location',
-          dropoff: 'Dropoff Location'
-        }));
+        // Fetch passenger profiles
+        const passengerIds = [...new Set(data.map(r => r.passenger_id).filter(Boolean))];
+        let profilesMap = {};
+        if (passengerIds.length > 0) {
+          const { data: passengers } = await supabase
+            .from('profiles')
+            .select('id, full_name, phone')
+            .in('id', passengerIds);
+          if (passengers) {
+            profilesMap = Object.fromEntries(passengers.map(p => [p.id, p]));
+          }
+        }
+
+        const formattedRides = data.map(ride => {
+          const passenger = profilesMap[ride.passenger_id];
+          return {
+            ...ride,
+            passengerName: passenger?.full_name || 'Passenger',
+            passengerPhone: passenger?.phone || '',
+            rating: 4.8,
+            pickup: 'Pickup Location',
+            dropoff: 'Dropoff Location'
+          };
+        });
         setActiveRides(formattedRides);
         setIsOnline(true);
       }
@@ -441,6 +566,10 @@ export default function DriverDashboard() {
 
   const acceptRide = async () => {
     if (!incomingRequest) return;
+    if (activeRides.length > 0) {
+      console.log('Driver already has an active ride');
+      return;
+    }
     
     try {
       const { error } = await supabase
@@ -1048,9 +1177,8 @@ export default function DriverDashboard() {
           )}
         </div>
 
-        {/* Map Top */}
         <div className="relative h-[45vh] flex-shrink-0 mt-20">
-          <DriverMap activeRides={activeRides} /> 
+          <DriverMap activeRides={activeRides} driverLocation={driverLocation} /> 
         </div>
 
         {/* Content Bottom */}
@@ -1080,9 +1208,8 @@ export default function DriverDashboard() {
       ========================================================================= */}
       <div className="hidden lg:flex flex-row w-full h-full">
         
-        {/* LEFT: Map Area */}
         <div className="flex-1 relative h-full">
-          <DriverMap activeRides={activeRides} />
+          <DriverMap activeRides={activeRides} driverLocation={driverLocation} />
         </div>
 
         {/* RIGHT: Sidebar */}
@@ -1568,27 +1695,115 @@ export default function DriverDashboard() {
 
 // === SUB-COMPONENTS ===
 
-function DriverMap({ activeRides }) {
+function DriverMap({ activeRides, driverLocation }) {
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  
+  const activeRide = activeRides && activeRides.length > 0 ? activeRides[0] : null;
+
+  useEffect(() => {
+    if (!activeRide) {
+      setRouteCoordinates([]);
+      return;
+    }
+
+    const fetchRoute = async () => {
+      let start, end;
+
+      if (['accepted', 'arrived'].includes(activeRide.status)) {
+        if (driverLocation) {
+          // Phase 1: From driver's current position to passenger's pickup location
+          start = driverLocation;
+          end = { lat: activeRide.pickup_latitude, lng: activeRide.pickup_longitude };
+        } else {
+          // Fallback: From passenger's pickup location to passenger's dropoff location
+          start = { lat: activeRide.pickup_latitude, lng: activeRide.pickup_longitude };
+          end = { lat: activeRide.dropoff_latitude, lng: activeRide.dropoff_longitude };
+        }
+      } else {
+        if (driverLocation) {
+          // Phase 2: From driver's current position to passenger's dropoff location
+          start = driverLocation;
+          end = { lat: activeRide.dropoff_latitude, lng: activeRide.dropoff_longitude };
+        } else {
+          // Fallback: From passenger's pickup location to passenger's dropoff location
+          start = { lat: activeRide.pickup_latitude, lng: activeRide.pickup_longitude };
+          end = { lat: activeRide.dropoff_latitude, lng: activeRide.dropoff_longitude };
+        }
+      }
+
+      if (start && end) {
+        const coords = await getRoute(start, end);
+        if (coords) {
+          setRouteCoordinates(coords);
+        }
+      }
+    };
+
+    fetchRoute();
+  }, [activeRide?.id, activeRide?.status, driverLocation?.lat, driverLocation?.lng]);
+
+  const markers = [];
+
+  // 1. Driver live position
+  if (driverLocation) {
+    markers.push({
+      position: [driverLocation.lat, driverLocation.lng],
+      popup: "You (Driver)"
+    });
+  }
+
+  // 2. Active ride details
+  if (activeRide) {
+    markers.push({
+      position: [activeRide.pickup_latitude, activeRide.pickup_longitude],
+      popup: `Pickup: ${activeRide.passengerName || 'Passenger'}`
+    });
+
+    markers.push({
+      position: [activeRide.dropoff_latitude, activeRide.dropoff_longitude],
+      popup: `Drop-off: ${activeRide.passengerName || 'Passenger'}`
+    });
+  }
+
+  let center = [-1.286389, 36.817223]; // Nairobi default
+  if (driverLocation) {
+    center = [driverLocation.lat, driverLocation.lng];
+  } else if (activeRide) {
+    center = [activeRide.pickup_latitude, activeRide.pickup_longitude];
+  }
+
   return (
     <div className="relative w-full h-full bg-slate-100">
-      <iframe 
-        width="100%" height="100%" frameBorder="0" 
-        src="https://www.openstreetmap.org/export/embed.html?bbox=36.7%2C-1.3%2C37.1%2C-1.1&layer=mapnik" 
-        className="w-full h-full opacity-100 mix-blend-multiply grayscale-[0.3]"
-      ></iframe>
+      <Map 
+        center={center}
+        zoom={14}
+        markers={markers}
+        routeCoordinates={routeCoordinates}
+        className="w-full h-full"
+      />
       
       {/* Navigation Overlay - Show for any active ride */}
-      {activeRides && activeRides.length > 0 && (
-        <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-purple-700 text-white p-4 shadow-xl z-20 rounded-none md:rounded-lg">
-            <div className="flex items-start gap-4">
-              <Navigation className="w-10 h-10 mt-1 opacity-90" />
-              <div>
-                <div className="text-purple-100 font-medium text-sm">
-                  {activeRides.length} Active {activeRides.length === 1 ? 'Ride' : 'Rides'}
-                </div>
-                <div className="font-bold text-2xl leading-tight">Navigating...</div>
+      {activeRide && (
+        <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-purple-700 text-white p-4 shadow-xl z-[500] rounded-none md:rounded-lg">
+          <div className="flex items-start gap-4">
+            <Navigation className="w-10 h-10 mt-1 opacity-90 animate-pulse" />
+            <div>
+              <div className="text-purple-100 font-medium text-sm">
+                Active Ride - {activeRide.passengerName}
+              </div>
+              <div className="font-bold text-lg leading-tight">
+                {['accepted', 'arrived'].includes(activeRide.status) 
+                  ? 'Navigating to Pickup...' 
+                  : 'Heading to Destination...'}
+              </div>
+              <div className="text-purple-100 text-xs mt-1">
+                {activeRide.status === 'accepted' && 'Status: En Route to Passenger'}
+                {activeRide.status === 'arrived' && 'Status: Arrived at Pickup'}
+                {activeRide.status === 'passenger_arrived' && 'Status: Passenger Is Ready'}
+                {activeRide.status === 'in_progress' && 'Status: Trip in Progress'}
               </div>
             </div>
+          </div>
         </div>
       )}
     </div>
