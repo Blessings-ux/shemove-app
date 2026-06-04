@@ -14,87 +14,116 @@ const NOMINATIM_REVERSE = isDev
   ? "/api/nominatim/reverse"
   : "https://nominatim.openstreetmap.org/reverse";
 
-// Headers required by Nominatim usage policy (must identify the app)
-const nominatimHeaders = isDev
-  ? {}
-  : {
-      "User-Agent": "SheMove-App/1.0 (https://shemove.ke)",
-    };
-
 export async function searchLocation(query) {
   if (!query || query.length < 3) return [];
 
-  try {
-    const params = new URLSearchParams({
-      q: `${query}, Kenya`, // Bias results to Kenya
-      format: "json",
-      limit: 5,
-      addressdetails: 1,
-    });
+  const params = new URLSearchParams({
+    q: `${query}, Kenya`, // Bias results to Kenya
+    format: "json",
+    limit: 5,
+    addressdetails: 1,
+  });
 
-    const response = await fetch(`${NOMINATIM_SEARCH}?${params.toString()}`, {
-      headers: nominatimHeaders,
-    });
+  // Try proxy first (dev), then fall back to direct API
+  const urls = isDev
+    ? [
+        `${NOMINATIM_SEARCH}?${params.toString()}`,
+        `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+      ]
+    : [`${NOMINATIM_SEARCH}?${params.toString()}`];
 
-    if (!response.ok) {
-      console.error(
-        "Nominatim response:",
-        response.status,
-        response.statusText
-      );
-      throw new Error("Geocoding service unavailable");
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "SheMove-App/1.0 (https://shemove.ke)",
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(
+          "Nominatim response:",
+          response.status,
+          response.statusText,
+          "- trying next endpoint"
+        );
+        continue; // Try next URL
+      }
+
+      const data = await response.json();
+
+      // Map to our internal format
+      return data.map((item) => ({
+        name: item.display_name.split(",")[0], // Simple name
+        full_name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+        type: item.type,
+      }));
+    } catch (error) {
+      console.warn("Geocoding attempt failed:", error.message);
+      continue; // Try next URL
     }
-
-    const data = await response.json();
-
-    // Map to our internal format
-    return data.map((item) => ({
-      name: item.display_name.split(",")[0], // Simple name
-      full_name: item.display_name,
-      lat: parseFloat(item.lat),
-      lng: parseFloat(item.lon),
-      type: item.type,
-    }));
-  } catch (error) {
-    console.error("Geocoding error:", error);
-    return [];
   }
+
+  console.error("All geocoding endpoints failed for query:", query);
+  return [];
 }
 
 export async function reverseGeocode(lat, lng) {
-  try {
-    const params = new URLSearchParams({
-      lat,
-      lon: lng,
-      format: "json",
-      zoom: 18,
-      addressdetails: 1,
-    });
+  const params = new URLSearchParams({
+    lat,
+    lon: lng,
+    format: "json",
+    zoom: 18,
+    addressdetails: 1,
+  });
 
-    const response = await fetch(`${NOMINATIM_REVERSE}?${params.toString()}`, {
-      headers: nominatimHeaders,
-    });
+  // Try proxy first (dev), then fall back to direct API
+  const urls = isDev
+    ? [
+        `${NOMINATIM_REVERSE}?${params.toString()}`,
+        `https://nominatim.openstreetmap.org/reverse?${params.toString()}`,
+      ]
+    : [`${NOMINATIM_REVERSE}?${params.toString()}`];
 
-    if (!response.ok) throw new Error("Reverse geocoding error");
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "SheMove-App/1.0 (https://shemove.ke)",
+          Accept: "application/json",
+        },
+      });
 
-    const data = await response.json();
-    const address = data.address || {};
+      if (!response.ok) {
+        console.warn("Reverse geocoding response:", response.status, "- trying next endpoint");
+        continue;
+      }
 
-    // Construct a friendly name
-    const name =
-      address.road ||
-      address.suburb ||
-      address.village ||
-      address.city ||
-      "Unknown Location";
-    return {
-      name,
-      full_name: data.display_name,
-      lat: parseFloat(data.lat),
-      lng: parseFloat(data.lon),
-    };
-  } catch (error) {
-    console.error("Reverse geocoding error:", error);
-    return null;
+      const data = await response.json();
+      const address = data.address || {};
+
+      // Construct a friendly name
+      const name =
+        address.road ||
+        address.suburb ||
+        address.village ||
+        address.city ||
+        "Unknown Location";
+      return {
+        name,
+        full_name: data.display_name,
+        lat: parseFloat(data.lat),
+        lng: parseFloat(data.lon),
+      };
+    } catch (error) {
+      console.warn("Reverse geocoding attempt failed:", error.message);
+      continue;
+    }
   }
+
+  console.error("All reverse geocoding endpoints failed");
+  return null;
 }

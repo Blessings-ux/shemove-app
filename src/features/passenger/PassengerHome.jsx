@@ -41,6 +41,7 @@ export default function PassengerHome() {
   const [profileForm, setProfileForm] = useState({ full_name: profile?.full_name || '', phone: profile?.phone || '' });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [driverLocation, setDriverLocation] = useState(null);
   const [appSettings, setAppSettings] = useState({
     notifications: true,
     darkMode: false,
@@ -137,13 +138,37 @@ export default function PassengerHome() {
   useEffect(() => {
     const fetchRoute = async () => {
       if (pickupLocation && dropoffLocation) {
-        const coords = await getRoute(pickupLocation, dropoffLocation);
+        let routeStart = pickupLocation;
+        let routeEnd = dropoffLocation;
+
+        // If there is an active ride, show a route relative to the driver's position
+        if (currentRide && currentRide.status && !['pending', 'completed', 'cancelled'].includes(currentRide.status)) {
+          if (['accepted', 'arrived'].includes(currentRide.status)) {
+            // Driver heading to pickup
+            if (driverLocation) {
+              routeStart = driverLocation;
+              routeEnd = pickupLocation;
+            }
+            // else fallback: pickup -> dropoff (default)
+          } else if (['passenger_arrived', 'in_progress'].includes(currentRide.status)) {
+            // Trip in progress – show route to destination
+            if (driverLocation) {
+              routeStart = driverLocation;
+              routeEnd = dropoffLocation;
+            } else {
+              routeStart = pickupLocation;
+              routeEnd = dropoffLocation;
+            }
+          }
+        }
+
+        const coords = await getRoute(routeStart, routeEnd);
         if (coords) setRouteCoordinates(coords);
         
-        // Auto-calculate distance and fare
+        // Auto-calculate distance and fare (always use pickup→dropoff for pricing)
         const dist = calculateDistance(pickupLocation.lat, pickupLocation.lng, dropoffLocation.lat, dropoffLocation.lng);
         setEstimatedDistance(dist);
-        setEstimatedFare(calculateFare(dist, selectedVehicle)); // Note: IsCarpool updates handle their own fare calc usually, but this is a safe baseline
+        setEstimatedFare(calculateFare(dist, selectedVehicle));
       } else {
         setRouteCoordinates([]);
         setEstimatedDistance(0);
@@ -151,7 +176,7 @@ export default function PassengerHome() {
       }
     };
     fetchRoute();
-  }, [pickupLocation, dropoffLocation]); // Keep dependencies simple to avoid loops, vehicle change handled elsewhere or can be added
+  }, [pickupLocation, dropoffLocation, driverLocation?.lat, driverLocation?.lng, currentRide?.status]);
 
   // React to vehicle change to update fare
   useEffect(() => {
@@ -447,6 +472,63 @@ export default function PassengerHome() {
       supabase.removeChannel(channel);
     };
   }, [currentRide?.id]);
+
+  // Subscribe to driver's live location when ride is active
+  useEffect(() => {
+    const driverId = currentRide?.driver_id;
+    if (!driverId) {
+      setDriverLocation(null);
+      return;
+    }
+
+    // Helper to parse PostGIS geography point to {lat, lng}
+    const parseLocation = (loc) => {
+      if (!loc) return null;
+      // GeoJSON object format: { type: 'Point', coordinates: [lng, lat] }
+      if (loc.type === 'Point' && Array.isArray(loc.coordinates)) {
+        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+      }
+      // WKT text format: "POINT(lng lat)"
+      if (typeof loc === 'string') {
+        const match = loc.match(/POINT\(([\d.\-]+)\s+([\d.\-]+)\)/);
+        if (match) return { lat: parseFloat(match[2]), lng: parseFloat(match[1]) };
+      }
+      return null;
+    };
+
+    // Fetch the initial driver location
+    const fetchInitial = async () => {
+      const { data } = await supabase
+        .from('driver_locations')
+        .select('location')
+        .eq('driver_id', driverId)
+        .single();
+      if (data?.location) {
+        const parsed = parseLocation(data.location);
+        if (parsed) setDriverLocation(parsed);
+      }
+    };
+    fetchInitial();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel(`passenger-track-driver-${driverId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'driver_locations',
+        filter: `driver_id=eq.${driverId}`
+      }, (payload) => {
+        const parsed = parseLocation(payload.new.location);
+        if (parsed) setDriverLocation(parsed);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      setDriverLocation(null);
+    };
+  }, [currentRide?.driver_id]);
 
   // Book a carpool offer - INSTANT connection, no confirmation needed
   const bookCarpoolOffer = async (offer) => {
@@ -761,6 +843,9 @@ export default function PassengerHome() {
     const markers = [];
     if (pickupLocation) markers.push({ position: [pickupLocation.lat, pickupLocation.lng], popup: "Pickup" });
     if (dropoffLocation) markers.push({ position: [dropoffLocation.lat, dropoffLocation.lng], popup: "Dropoff" });
+    if (driverLocation && currentRide && !['completed', 'cancelled'].includes(currentRide.status)) {
+      markers.push({ position: [driverLocation.lat, driverLocation.lng], popup: `Driver: ${driverInfo?.name || 'Your Driver'}` });
+    }
     return markers;
   };
 

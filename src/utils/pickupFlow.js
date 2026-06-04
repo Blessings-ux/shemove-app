@@ -100,7 +100,7 @@ export function canDriverMarkArrived(status) {
 }
 
 export function canPassengerConfirmArrival(status) {
-  return status === "arrived";
+  return status === "accepted" || status === "arrived";
 }
 
 export function canDriverStartRide(status) {

@@ -13,8 +13,9 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/nominatim/, ""),
         headers: {
-          "User-Agent": "JiraniRide-App/1.0 (https://jiraniride.ke)",
-          Referer: "https://jiraniride.ke",
+          "User-Agent": "SheMove-App/1.0 (https://shemove.ke)",
+          Referer: "https://shemove.ke",
+          Accept: "application/json",
         },
       },
       // Proxy for OSRM routing to bypass CORS

@@ -25,11 +25,14 @@ export const useDriverLocation = (driverId, isOnline) => {
       try {
         const { error: dbError } = await supabase
           .from("driver_locations")
-          .upsert({
-            driver_id: driverId,
-            location: `POINT(${longitude} ${latitude})`,
-            updated_at: new Date().toISOString(),
-          });
+          .upsert(
+            {
+              driver_id: driverId,
+              location: `SRID=4326;POINT(${longitude} ${latitude})`,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "driver_id" }
+          );
 
         if (dbError) console.error("Error updating location:", dbError);
       } catch (err) {
