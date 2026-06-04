@@ -98,11 +98,29 @@ export default function DriverDashboard() {
         const promises = [
           !profile ? supabase.from('profiles').select('*').eq('id', user.id).single() : Promise.resolve({ data: profile }),
           supabase.from('drivers').select('*').eq('id', user.id).single(),
-          supabase.from('rides').select('*, passenger:profiles!rides_passenger_id_fkey(full_name, phone)').or(`driver_id.eq.${user.id},status.eq.pending`).order('created_at', { ascending: false }).limit(20),
+          supabase.from('rides').select('*').or(`driver_id.eq.${user.id},status.eq.pending`).order('created_at', { ascending: false }).limit(20),
           supabase.from('rides').select('fare').eq('driver_id', user.id).eq('status', 'completed').gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString()) // Today's earnings
         ];
 
         const [profileRes, driverRes, ridesRes, earningsRes] = await Promise.all(promises);
+
+        // Fetch passenger details for the rides
+        if (ridesRes.data && ridesRes.data.length > 0) {
+          const passengerIds = [...new Set(ridesRes.data.map(r => r.passenger_id).filter(Boolean))];
+          if (passengerIds.length > 0) {
+            const { data: passengers, error: pError } = await supabase
+              .from('profiles')
+              .select('id, full_name, phone')
+              .in('id', passengerIds);
+            if (!pError && passengers) {
+              const profilesMap = Object.fromEntries(passengers.map(p => [p.id, p]));
+              ridesRes.data = ridesRes.data.map(ride => ({
+                ...ride,
+                passenger: profilesMap[ride.passenger_id] || null
+              }));
+            }
+          }
+        }
 
         // Update Profile Store if fetched
         if (!profile && profileRes.data) {
@@ -418,21 +436,39 @@ export default function DriverDashboard() {
 
   const fetchActiveRides = async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('rides')
-        .select('*, passenger:profiles!rides_passenger_id_fkey(full_name, phone)')
+        .select('*')
         .eq('driver_id', user.id)
         .in('status', ['accepted', 'arrived', 'passenger_arrived', 'in_progress']);
       
+      if (error) throw error;
+      
       if (data && data.length > 0) {
-        const formattedRides = data.map(ride => ({
-          ...ride,
-          passengerName: ride.passenger?.full_name || 'Passenger',
-          passengerPhone: ride.passenger?.phone || '',
-          rating: 4.8,
-          pickup: 'Pickup Location',
-          dropoff: 'Dropoff Location'
-        }));
+        // Fetch passenger profiles
+        const passengerIds = [...new Set(data.map(r => r.passenger_id).filter(Boolean))];
+        let profilesMap = {};
+        if (passengerIds.length > 0) {
+          const { data: passengers } = await supabase
+            .from('profiles')
+            .select('id, full_name, phone')
+            .in('id', passengerIds);
+          if (passengers) {
+            profilesMap = Object.fromEntries(passengers.map(p => [p.id, p]));
+          }
+        }
+
+        const formattedRides = data.map(ride => {
+          const passenger = profilesMap[ride.passenger_id];
+          return {
+            ...ride,
+            passengerName: passenger?.full_name || 'Passenger',
+            passengerPhone: passenger?.phone || '',
+            rating: 4.8,
+            pickup: 'Pickup Location',
+            dropoff: 'Dropoff Location'
+          };
+        });
         setActiveRides(formattedRides);
         setIsOnline(true);
       }

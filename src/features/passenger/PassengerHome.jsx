@@ -277,6 +277,29 @@ export default function PassengerHome() {
         
         data = result.data;
         error = result.error;
+
+        // Fetch driver profiles separately and merge them
+        if (data && data.length > 0) {
+          const driverIds = [...new Set(data.map(o => o.driver_id).filter(Boolean))];
+          if (driverIds.length > 0) {
+            try {
+              const { data: profiles, error: profilesError } = await supabase
+                .from('profiles')
+                .select('id, full_name')
+                .in('id', driverIds);
+              
+              if (!profilesError && profiles) {
+                const profilesMap = Object.fromEntries(profiles.map(p => [p.id, p]));
+                data = data.map(offer => ({
+                  ...offer,
+                  driver: profilesMap[offer.driver_id] || null
+                }));
+              }
+            } catch (err) {
+              console.error('Error fetching driver profiles for carpool offers:', err);
+            }
+          }
+        }
       }
 
       if (error) {

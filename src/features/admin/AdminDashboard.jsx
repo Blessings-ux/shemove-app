@@ -49,23 +49,88 @@ export default function AdminDashboard() {
     setIsLoading(true);
     try {
       // Fetch all stats in parallel
+      // Fetch base tables
       const [
-        { data: drivers, error: driversError },
-        { data: passengers },
-        { data: rides },
-        { data: transactions, error: transactionsError },
+        { data: driversRaw, error: driversError },
+        { data: passengersRaw },
+        { data: ridesRaw },
+        { data: transactionsRaw, error: transactionsError },
       ] = await Promise.all([
-        // Use explicit relationship: drivers.id -> profiles.id (not owner_id)
-        supabase.from('drivers').select('*, profiles!drivers_id_fkey(full_name, phone)'),
+        supabase.from('drivers').select('*'),
         supabase.from('profiles').select('*').eq('role', 'passenger'),
-        supabase.from('rides').select('*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name)').order('created_at', { ascending: false }).limit(50),
-        supabase.from('mpesa_transactions').select('*, ride:rides(*, passenger:profiles!rides_passenger_id_fkey(full_name), driver:profiles!rides_driver_id_fkey(full_name))').order('created_at', { ascending: false }),
+        supabase.from('rides').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('mpesa_transactions').select('*').order('created_at', { ascending: false }),
       ]);
 
-      console.log('Fetched drivers:', drivers);
+      console.log('Fetched drivers:', driversRaw);
       console.log('Drivers error:', driversError);
-      console.log('Fetched transactions:', transactions);
+      console.log('Fetched transactions:', transactionsRaw);
       if (transactionsError) console.error('Transactions error:', transactionsError);
+
+      // Collect all referenced ride IDs from transactions to fetch any missing rides
+      const transactionRideIds = [...new Set(transactionsRaw?.map(t => t.ride_id).filter(Boolean)) || []];
+      const existingRideIds = new Set(ridesRaw?.map(r => r.id) || []);
+      const missingRideIds = transactionRideIds.filter(id => !existingRideIds.has(id));
+      
+      let allRidesList = [...(ridesRaw || [])];
+      if (missingRideIds.length > 0) {
+        const { data: missingRides } = await supabase
+          .from('rides')
+          .select('*')
+          .in('id', missingRideIds);
+        if (missingRides) {
+          allRidesList = [...allRidesList, ...missingRides];
+        }
+      }
+      
+      const ridesMap = Object.fromEntries(allRidesList.map(r => [r.id, r]));
+
+      // Collect all needed profile IDs
+      const neededProfileIds = new Set();
+      driversRaw?.forEach(d => neededProfileIds.add(d.id));
+      allRidesList.forEach(r => {
+        if (r.passenger_id) neededProfileIds.add(r.passenger_id);
+        if (r.driver_id) neededProfileIds.add(r.driver_id);
+      });
+      
+      const profileIdsArray = [...neededProfileIds];
+      
+      let profilesMap = {};
+      if (profileIdsArray.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', profileIdsArray);
+        if (profilesData) {
+          profilesMap = Object.fromEntries(profilesData.map(p => [p.id, p]));
+        }
+      }
+
+      // Assemble final objects matching expected UI join shapes
+      const drivers = driversRaw?.map(d => ({
+        ...d,
+        profiles: profilesMap[d.id] || null
+      })) || [];
+
+      const passengers = passengersRaw || [];
+
+      const rides = ridesRaw?.map(r => ({
+        ...r,
+        passenger: profilesMap[r.passenger_id] || null,
+        driver: profilesMap[r.driver_id] || null
+      })) || [];
+
+      const transactions = transactionsRaw?.map(t => {
+        const linkedRide = t.ride_id ? ridesMap[t.ride_id] : null;
+        return {
+          ...t,
+          ride: linkedRide ? {
+            ...linkedRide,
+            passenger: profilesMap[linkedRide.passenger_id] || null,
+            driver: profilesMap[linkedRide.driver_id] || null
+          } : null
+        };
+      }) || [];
 
       // Calculate stats
       const activeDrivers = drivers?.filter(d => d.is_online) || [];

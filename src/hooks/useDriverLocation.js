@@ -29,7 +29,6 @@ export const useDriverLocation = (driverId, isOnline) => {
             {
               driver_id: driverId,
               location: `SRID=4326;POINT(${longitude} ${latitude})`,
-              updated_at: new Date().toISOString(),
             },
             { onConflict: "driver_id" }
           );
