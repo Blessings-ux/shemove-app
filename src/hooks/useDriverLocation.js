@@ -28,12 +28,16 @@ export const useDriverLocation = (driverId, isOnline) => {
           .upsert(
             {
               driver_id: driverId,
-              location: `SRID=4326;POINT(${longitude} ${latitude})`,
+              location: `POINT(${longitude} ${latitude})`,
+              latitude: latitude,
+              longitude: longitude,
             },
             { onConflict: "driver_id" }
           );
 
-        if (dbError) console.error("Error updating location:", dbError);
+        if (dbError) {
+          console.error("Error updating location: Code:", dbError.code, "Message:", dbError.message, "Details:", dbError.details, "Hint:", dbError.hint);
+        }
       } catch (err) {
         console.error("Failed to sync location:", err);
       }
