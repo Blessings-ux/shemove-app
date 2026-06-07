@@ -525,7 +525,7 @@ export default function PassengerHome() {
         .from('driver_locations')
         .select('location')
         .eq('driver_id', driverId)
-        .single();
+        .maybeSingle();
       if (data?.location) {
         const parsed = parseLocation(data.location);
         if (parsed) setDriverLocation(parsed);
